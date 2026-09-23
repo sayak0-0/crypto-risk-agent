@@ -40,6 +40,15 @@ def options(limit=400):
     return FALLBACK, {}, '用内置常用列表'
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def top_suggestions(limit=5):
+    """给下拉框用的「值得看」提示。缓存 15 分钟，避免每次渲染都扫全市场。"""
+    try:
+        return watchlist.suggestions(limit=limit)
+    except Exception:
+        return []
+
+
 def _label(sym, info):
     d = info.get(sym) or {}
     chg = d.get('24h涨跌%')
@@ -47,6 +56,28 @@ def _label(sym, info):
         return sym
     arrow = '📈' if chg > 0 else ('📉' if chg < 0 else '➖')
     return f'{sym}　{arrow} {chg:+.1f}%'
+
+
+def _suggest_hint():
+    """在币种下拉框下面给个「不知道选什么」的提示。
+
+    ⚠️ 这是【事实筛选】不是【推荐买入】—— 每条都带客观理由。
+    """
+    with st.expander('💡 不知道选哪个？看看这几个', expanded=False):
+        st.caption(
+            '按**客观异常**筛出来的（不是推荐买入）：持仓最优先，'
+            '然后是资金费率偏离常规的、今天异动的。'
+        )
+        sug = top_suggestions(8)
+        if not sug:
+            st.caption('（拉不到全市场数据，检查网络或代理设置）')
+            return
+        for sym, why in sug:
+            c1, c2 = st.columns([1, 4])
+            c1.markdown(f'**{sym}**')
+            c2.caption(why)
+        st.caption('⚠️ 费率极端 / 涨跌异动在样本外**不具备稳定预测力**，'
+                   '这里只是帮你收敛注意力。')
 
 
 def pick(label='币种', key='sym_pick', default='BTCUSDT', help_text=None,
@@ -80,6 +111,7 @@ def pick(label='币种', key='sym_pick', default='BTCUSDT', help_text=None,
                                format_func=lambda s: _label(s, info), key=key,
                                help=help_text)
         c2.caption(f'共 {len(syms)} 个')
+        _suggest_hint()
 
     if out and not out.endswith('USDT') and not out.endswith('USDC'):
         out = out + 'USDT'

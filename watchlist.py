@@ -75,6 +75,13 @@ def market_overview(exchange='币安'):
             }
         except (TypeError, ValueError, KeyError):
             continue
+        # 顺手算「价格在 24 小时区间的什么位置」
+        try:
+            hi, lo, px = out[sym]['24h最高'], out[sym]['24h最低'], out[sym]['标记价']
+            if hi > lo:
+                out[sym]['24h区间位置%'] = round((px - lo) / (hi - lo) * 100, 1)
+        except Exception:
+            pass
     for p in premium:
         sym = p.get('symbol')
         if sym in out:
@@ -150,3 +157,119 @@ def scan(symbols=None, min_volume_usd=5e7, top_by='成交额'):
         rows.sort(key=lambda x: -(abs(x.get('资金费率%') or 0)))
     return {'数据': rows, '扫描时间': __import__('time').strftime('%Y-%m-%d %H:%M:%S'),
             '市场总数': len(market), '错误': None}
+
+# ---------------- 快速筛选分类 ----------------
+# 目的：400 多个币种，用户不知道看哪个。
+# 但这里做的是【事实筛选】不是【推荐买入】—— 每个分类的依据都是客观可验证的数字，
+# 而且会标注「为什么它出现在这里」，用户能一眼看出这是事实还是观点。
+#
+# ⚠️ 实测结论：用历史数据做过条件统计 + 样本外验证，
+#    「费率极端」「涨跌异动」这类条件在样本外**不具备稳定预测力**。
+#    所以这些分类的定位是「帮你筛选注意力」，不是「告诉你买什么」。
+
+
+def _fmt_yi(v):
+    if v is None:
+        return '—'
+    return f'{v / 1e8:,.1f}亿'
+
+
+def annotate(rows, positions=None):
+    """给每行加上筛选标签和理由。"""
+    held = {str(p.get('币种', '')).upper() for p in (positions or [])}
+    # 先按成交额算排名
+    by_vol = sorted(rows, key=lambda x: -(x.get('24h成交额') or 0))
+    rank = {r['币种']: i + 1 for i, r in enumerate(by_vol)}
+
+    for r in rows:
+        tags, why = [], []
+        sym = r['币种']
+        vol = r.get('24h成交额') or 0
+        fr = r.get('资金费率%')
+        chg = r.get('24h涨跌%')
+        pos = r.get('24h区间位置%')
+
+        r['成交额排名'] = rank.get(sym)
+
+        if rank.get(sym, 999) <= 20:
+            tags.append('流动性最好')
+            why.append(f"成交额全市场第 {rank[sym]} 名（{_fmt_yi(vol)} USDT）")
+
+        if fr is not None and abs(fr) >= 0.03:
+            tags.append('费率异常')
+            direction = '多头拥挤（做多要付钱）' if fr > 0 else '空头拥挤（做空要付钱）'
+            why.append(f"8小时资金费率 {fr:+.4f}%，{direction}")
+
+        if chg is not None and abs(chg) >= 5:
+            tags.append('今日异动')
+            why.append(f"24小时涨跌 {chg:+.1f}%")
+
+        if pos is not None and (pos > 92 or pos < 8):
+            tags.append('贴近区间边缘')
+            where = '24小时区间顶部' if pos > 92 else '24小时区间底部'
+            why.append(f"价格在{where}（区间位置 {pos:.0f}%）")
+
+        if sym in held:
+            tags.append('我的持仓')
+            why.append('这是你当前实际持有的仓位')
+
+        r['分类'] = tags
+        r['筛选理由'] = '；'.join(why)
+        r['值得看'] = bool(tags)
+    return rows
+
+
+def discover(top_n=200):
+    """扫**全市场**（按成交额取前 top_n），找出值得看的币种。
+
+    和 scan() 的区别：scan() 只扫你自选的，discover() 扫全市场 ——
+    这样才能发现自选列表之外的异动。
+
+    定位：帮你把注意力从 700 多个币种收敛到十几个，**不是推荐买入**。
+    """
+    import monitor
+    try:
+        market = market_overview()
+    except Exception as e:
+        return {'错误': f'{type(e).__name__}: {e}', '数据': []}
+    rows = sorted(market.values(), key=lambda x: -(x.get('24h成交额') or 0))[:top_n]
+    rows = annotate(rows, monitor.load_positions())
+    return {'数据': rows, '扫描时间': __import__('time').strftime('%Y-%m-%d %H:%M:%S'),
+            '全市场合约数': len(market), '已扫描': len(rows), '错误': None}
+
+
+def quick_categories(rows):
+    """返回 {分类名: [行...]}，以及每个分类的一句话说明。"""
+    ORDER = ['我的持仓', '费率异常', '今日异动', '流动性最好', '贴近区间边缘']
+    DESC = {
+        '我的持仓':    '你实际持有的仓位 —— 最该看的',
+        '费率异常':    '资金费率偏离常规，说明多空某一方拥挤',
+        '今日异动':    '涨跌幅超过 5%，通常有原因',
+        '流动性最好':  '成交额前 20 名，滑点最小',
+        '贴近区间边缘': '价格贴着 24 小时高低点',
+    }
+    out = {}
+    for c in ORDER:
+        sub = [r for r in rows if c in (r.get('分类') or [])]
+        if sub:
+            out[c] = {'说明': DESC[c], '数据': sub}
+    return out
+
+
+def suggestions(limit=5):
+    """给币种下拉框用的「值得看」提示。返回 [(币种, 理由), ...]。"""
+    r = discover(top_n=200)
+    if r.get('错误'):
+        return []
+    rows = r['数据']
+    # 优先：持仓 > 费率异常 > 今日异动
+    ORDER = ['我的持仓', '费率异常', '今日异动', '流动性最好']
+    picked, seen = [], set()
+    for cat in ORDER:
+        for row in rows:
+            if cat in (row.get('分类') or []) and row['币种'] not in seen:
+                picked.append((row['币种'], row['筛选理由']))
+                seen.add(row['币种'])
+                if len(picked) >= limit:
+                    return picked
+    return picked

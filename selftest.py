@@ -2677,6 +2677,127 @@ for n, f in [('兜底币种列表', t_symbol_fallback_list),
     check(n, f)
 
 
+# ---------------- 快速筛选分类 ----------------
+section('快速筛选分类')
+
+FAKE_MKT = [
+    {'币种': 'BTCUSDT', '标记价': 86000, '24h涨跌%': 2.0, '24h成交额': 1.3e10,
+     '24h最高': 87000, '24h最低': 84000, '资金费率%': 0.004, '24h区间位置%': 67.0},
+    {'币种': 'ZECUSDT', '标记价': 500, '24h涨跌%': 10.0, '24h成交额': 2.8e9,
+     '24h最高': 510, '24h最低': 440, '资金费率%': 0.010, '24h区间位置%': 86.0},
+    {'币种': 'ONEUSDT', '标记价': 0.01, '24h涨跌%': -26.0, '24h成交额': 3e8,
+     '24h最高': 0.014, '24h最低': 0.0099, '资金费率%': -0.374, '24h区间位置%': 1.0},
+    {'币种': 'QUIETUSDT', '标记价': 10, '24h涨跌%': 0.3, '24h成交额': 2e8,
+     '24h最高': 10.2, '24h最低': 9.8, '资金费率%': 0.001, '24h区间位置%': 50.0},
+]
+
+def t_annotate_tags():
+    """每个分类标签都要有客观依据，并写明理由。"""
+    rows = watchlist.annotate([dict(x) for x in FAKE_MKT])
+    d = {r['币种']: r for r in rows}
+    # BTC 成交额第 1 → 流动性最好
+    assert '流动性最好' in d['BTCUSDT']['分类'], d['BTCUSDT']
+    assert '第 1 名' in d['BTCUSDT']['筛选理由']
+    # ZEC 涨 10% → 今日异动
+    assert '今日异动' in d['ZECUSDT']['分类']
+    assert '+10.0%' in d['ZECUSDT']['筛选理由']
+    # ONE 费率 -0.374% → 费率异常 + 区间底部
+    assert '费率异常' in d['ONEUSDT']['分类']
+    assert '空头拥挤' in d['ONEUSDT']['筛选理由']
+    assert '贴近区间边缘' in d['ONEUSDT']['分类']
+    assert '底部' in d['ONEUSDT']['筛选理由']
+    # QUIET 波动/费率都正常 —— 不该有「费率异常」「今日异动」「贴近区间边缘」
+    # （注：测试集只有 4 个币，所以它仍会命中「流动性最好」，生产环境是 200 个币不会）
+    for tag in ['费率异常', '今日异动', '贴近区间边缘']:
+        assert tag not in d['QUIETUSDT']['分类'], f'{tag} 不该出现：{d["QUIETUSDT"]}'
+    assert '成交额全市场第 4 名' in d['QUIETUSDT']['筛选理由']
+
+def t_liquidity_rank_threshold():
+    """成交额排名必须真的按成交额算，且只有前 20 名进「流动性最好」。"""
+    rows = []
+    for i in range(25):
+        rows.append({'币种': f'S{i}USDT', '标记价': 1.0,
+                     '24h成交额': (100 - i) * 1e6,   # 递减
+                     '24h涨跌%': 0.1, '资金费率%': 0.001,
+                     '24h最高': 1.01, '24h最低': 0.99, '24h区间位置%': 50.0})
+    out = watchlist.annotate(rows)
+    d = {r['币种']: r for r in out}
+    assert d['S0USDT']['成交额排名'] == 1
+    assert d['S24USDT']['成交额排名'] == 25
+    assert '流动性最好' in d['S0USDT']['分类']
+    assert '流动性最好' not in d['S24USDT']['分类'], '第 25 名不该进前 20'
+    # 分界点：第 20 名进，第 21 名不进
+    assert '流动性最好' in d['S19USDT']['分类']
+    assert '流动性最好' not in d['S20USDT']['分类']
+
+def t_annotate_position_priority():
+    """持仓的币种必须被标记出来 —— 这是最该看的。"""
+    rows = watchlist.annotate([dict(x) for x in FAKE_MKT],
+                              positions=[{'币种': 'QUIETUSDT'}])
+    d = {r['币种']: r for r in rows}
+    assert '我的持仓' in d['QUIETUSDT']['分类']
+    assert '实际持有' in d['QUIETUSDT']['筛选理由']
+    # 持仓分类要排在最前面
+    cats = watchlist.quick_categories(rows)
+    assert list(cats.keys())[0] == '我的持仓', list(cats.keys())
+
+def t_quick_categories():
+    rows = watchlist.annotate([dict(x) for x in FAKE_MKT])
+    cats = watchlist.quick_categories(rows)
+    assert '费率异常' in cats and '今日异动' in cats and '流动性最好' in cats
+    for name, v in cats.items():
+        assert v['说明'], f'{name} 缺少说明'
+        assert len(v['数据']) >= 1
+        for r in v['数据']:
+            assert name in r['分类'], (name, r['币种'])
+    # 没有持仓时不该出现「我的持仓」分类
+    assert '我的持仓' not in cats
+
+def t_annotate_handles_missing_fields():
+    """字段缺失/None 时不能崩。"""
+    rows = watchlist.annotate([
+        {'币种': 'AUSDT', '24h成交额': None, '资金费率%': None,
+         '24h涨跌%': None, '24h区间位置%': None},
+        {'币种': 'BUSDT'},   # 几乎什么都没有
+    ])
+    assert len(rows) == 2
+    for r in rows:
+        assert '分类' in r and '筛选理由' in r
+
+def t_discover_limited():
+    """discover 只取成交额前 N 个，不能把 700 个全塞进来。"""
+    orig = watchlist.market_overview
+    watchlist.market_overview = lambda *a, **k: {x['币种']: dict(x) for x in FAKE_MKT}
+    try:
+        r = watchlist.discover(top_n=2)
+        assert len(r['数据']) == 2, r
+        assert r['全市场合约数'] == 4
+        assert r['已扫描'] == 2
+        # 应该是成交额最大的两个
+        assert {x['币种'] for x in r['数据']} == {'BTCUSDT', 'ZECUSDT'}
+    finally:
+        watchlist.market_overview = orig
+
+def t_discover_handles_error():
+    orig = watchlist.market_overview
+    watchlist.market_overview = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError('模拟断网'))
+    try:
+        r = watchlist.discover()
+        assert r['错误'] and '断网' in r['错误']
+        assert r['数据'] == []
+    finally:
+        watchlist.market_overview = orig
+
+for n, f in [('分类标签有客观依据', t_annotate_tags),
+             ('持仓优先标记', t_annotate_position_priority),
+             ('分类聚合正确', t_quick_categories),
+             ('字段缺失不崩', t_annotate_handles_missing_fields),
+             ('全市场扫描限量', t_discover_limited),
+             ('扫描失败不崩', t_discover_handles_error)]:
+    check(n, f)
+
+
 # ---------------- 收尾 ----------------
 if os.path.exists(TMP):
     os.remove(TMP)
