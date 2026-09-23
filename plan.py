@@ -257,6 +257,36 @@ def _extract_json(t):
     return None
 
 
+def call_with_hard_timeout(fn, timeout_sec, *args, **kwargs):
+    """硬超时：到点就放弃，不等它。
+
+    为什么需要：requests 的 timeout 只管「两次收到数据之间的间隔」，
+    不是总时长。模型慢慢流式返回时，超时永远不会触发 ——
+    实测踩过：方案官卡了 10 分钟以上，timeout=300 形同虚设。
+
+    用守护线程 + 队列实现真正的硬超时。超时返回 None，调用方走兜底。
+    """
+    import queue as _q
+    import threading as _th
+
+    box = _q.Queue()
+
+    def worker():
+        try:
+            box.put(('ok', fn(*args, **kwargs)))
+        except Exception as e:                      # noqa: BLE001
+            box.put(('err', e))
+
+    _th.Thread(target=worker, daemon=True).start()
+    try:
+        kind, val = box.get(timeout=timeout_sec)
+    except _q.Empty:
+        return None
+    if kind == 'err':
+        raise val
+    return val
+
+
 def ask_planner(symbol, price, analysis, stops, ratios, model=None, api_key=None,
                 user_forced=False):
     """让方案官从候选里选一组。"""
@@ -278,11 +308,15 @@ def ask_planner(symbol, price, analysis, stops, ratios, model=None, api_key=None
                            '距离百分比': s['距离百分比'], '说明': s['说明']}
                           for s in stops], ensure_ascii=False, indent=1),
         ratios=', '.join(str(r) for r in ratios)) + extra
-    text, usage, used = chat(PLANNER_SYSTEM, prompt,
-                             model=model or model_name('planner'),
-                             api_key_override=api_key,
-                             timeout=300,          # V4-Pro 处理 8 个候选会比较慢
-                             temperature=0.2, max_tokens=1000)
+    # 用硬超时包住 —— 光靠 requests 的 timeout 治不了流式卡死
+    out = call_with_hard_timeout(
+        chat, 240, PLANNER_SYSTEM, prompt,
+        model=model or model_name('planner'),
+        api_key_override=api_key,
+        timeout=180, temperature=0.2, max_tokens=1000)
+    if out is None:
+        return None, {}, '（方案官超时，已放弃，走程序默认止损位）'
+    text, usage, used = out
     return _extract_json(text), usage, used
 
 
@@ -320,11 +354,11 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
     picked, usage, used_model = ask_planner(symbol, price, analysis, stops, ratios,
                                             model, api_key,
                                             user_forced=user_forced)
+    planner_timeout = False
     if not picked:
-        return {'可执行': False, '标的': market.normalize_symbol(symbol),
-                '原因': '方案官输出解析失败，请重试。',
-                '主持人': chair, '快照': snap, '指标': ind,
-                '候选止损': stops}
+        # 方案官超时/解析失败 → 不放弃，用程序默认止损位继续
+        planner_timeout = True
+        picked = {}
 
     # 校验：模型选的名称必须真实存在于候选里（防止它编造）
     names = {s['名称']: s for s in stops}
@@ -339,8 +373,12 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
         # 并明确标注这是程序给的、不是模型选的。
         default = names.get('2倍ATR') or list(names.values())[len(names) // 2]
         chosen = default
-        why = ('模型没有返回有效的止损位名称' if raw_pick in (None, '', 'None')
-               else f'模型选的「{raw_pick}」不在候选里')
+        if planner_timeout:
+            why = '方案官超时或输出无法解析'
+        elif raw_pick in (None, '', 'None'):
+            why = '模型没有返回有效的止损位名称'
+        else:
+            why = f'模型选的「{raw_pick}」不在候选里'
         fallback_note = (f'⚠️ {why}，已回退到程序默认的「{chosen["名称"]}」。'
                          '这一条不是模型的选择，请自行核对是否合适。')
         if not isinstance(picked, dict):
