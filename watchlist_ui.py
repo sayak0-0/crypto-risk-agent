@@ -13,10 +13,14 @@ import tasks
 import watchlist
 
 
-def _table(rows, height=460):
+def _table(rows, height=460, select_key=None):
+    """渲染表格。如果给了 select_key，就支持「点一行选中」。
+
+    返回被选中的币种代码（没选返回 None）。
+    """
     if not rows:
         st.info('这一分类里暂时没有币种。')
-        return
+        return None
     df = pd.DataFrame(rows)
     cols = [c for c in ['币种', '标记价', '24h涨跌%', '资金费率%',
                         '24h区间位置%', '成交额排名', '筛选理由'] if c in df.columns]
@@ -34,7 +38,26 @@ def _table(rows, height=460):
         show['标记价'] = show['标记价'].map(
             lambda x: f'{x:,.4f}' if pd.notna(x) else '—')
     show = show.rename(columns={'成交额排名': '成交额名次'})
-    st.dataframe(show, height=min(height, 80 + 33 * len(show)))
+
+    if not select_key:
+        st.dataframe(show, height=min(height, 80 + 33 * len(show)))
+        return None
+
+    # 支持点行选中 —— 这是最直观的交互，不用去下面找下拉框
+    try:
+        event = st.dataframe(
+            show, height=min(height, 80 + 33 * len(show)),
+            on_select='rerun', selection_mode='single-row', key=select_key)
+        sel = getattr(event, 'selection', None)
+        rows_sel = getattr(sel, 'rows', None) if sel else None
+        if rows_sel:
+            return show.iloc[rows_sel[0]]['币种']
+        return None
+    except TypeError:
+        # 老版本 Streamlit 不支持行选择，退回普通表格
+        st.dataframe(show, height=min(height, 80 + 33 * len(show)))
+        st.caption('（当前 Streamlit 版本不支持点行选中，请用下面的按钮）')
+        return None
 
 
 def render_quick(cfg=None):
@@ -74,12 +97,14 @@ def render_quick(cfg=None):
     if pick == '全部':
         hit = [x for x in rows if x.get('值得看')]
         hit.sort(key=lambda x: x.get('成交额排名') or 999)
-        st.caption(f'全部有异动的：**{len(hit)} 个**（按成交额名次排序）')
-        _table(hit, height=520)
+        st.caption(f'全部有异动的：**{len(hit)} 个**（按成交额名次排序）'
+                   '（表格只做展示，下面用按钮操作）')
+        _table(hit, height=380)
     else:
         info = cats[pick]
         st.markdown(f"**{pick}**（{len(info['数据'])} 个）—— {info['说明']}")
-        _table(info['数据'], height=460)
+        st.caption('（表格只做展示，下面用按钮操作）')
+        _table(info['数据'], height=340)
 
     # 一键把筛出来的币种设成自选
     if pick != '全部':
@@ -88,44 +113,78 @@ def render_quick(cfg=None):
             watchlist.save_watchlist(syms)
             st.success(f'已设为自选（{len(syms)} 个）。下面的「自选币种扫描」可以用它们。')
 
-    # ---------- 看中了就直接生成方案（不用复制名字） ----------
+    # ---------- 看中了就直接生成方案（按钮版，最直观） ----------
     st.divider()
-    st.markdown('#### 🎯 看中哪个？直接生成方案')
-    cand = ([x['币种'] for x in cats[pick]['数据']] if pick != '全部'
-            else [x['币种'] for x in rows if x.get('值得看')])
-    if not cand:
+    st.markdown('#### 🎯 点下面的币，直接生成方案')
+
+    if pick == '全部':
+        hit = [x for x in rows if x.get('值得看')]
+        hit.sort(key=lambda x: x.get('成交额排名') or 999)
+        shown = hit[:12]
+        total = len(hit)
+    else:
+        shown = cats[pick]['数据'][:12]
+        total = len(cats[pick]['数据'])
+
+    if not shown:
         st.caption('这一分类里没有币种。')
         return
 
     cfg = cfg or {}
-    cc1, cc2, cc3, cc4 = st.columns([2, 1, 1, 1])
-    target = cc1.selectbox('币种', cand, key='disc_target',
-                           format_func=lambda s: f'{s}')
-    eq = cc2.number_input('本金', min_value=1.0,
+    # 参数先摆好（点了按钮就用这些参数）
+    pc1, pc2, pc3, pc4 = st.columns([2, 1, 1, 1])
+    eq = pc1.number_input('本金（USDT）', min_value=1.0,
                           value=float(cfg.get('本金', 1000.0)), step=100.0,
-                          key='disc_eq', label_visibility='visible')
-    rp = cc3.number_input('风险%', min_value=0.1, max_value=10.0,
+                          key='disc_eq')
+    rp = pc2.number_input('单笔风险%', min_value=0.1, max_value=10.0,
                           value=float(cfg.get('单笔风险百分比', 1.0)), step=0.1,
                           key='disc_rp')
-    lv = cc4.number_input('杠杆', min_value=1.0, max_value=125.0,
+    lv = pc3.number_input('杠杆', min_value=1.0, max_value=125.0,
                           value=float(cfg.get('杠杆', 10.0)), step=1.0,
                           key='disc_lv')
+    db = pc4.toggle('开启辩论', value=True, key='disc_debate',
+                    help='多 4 次模型调用，但能暴露对立观点')
 
-    db = st.toggle('⚔️ 开启多空辩论（多 4 次模型调用）', value=True, key='disc_debate')
-    if st.button(f'🚀 直接生成 {target} 的交易方案', type='primary', key='disc_go'):
-        st.session_state['disc_task'] = plan_ui.start_task(
-            target, cfg, eq, rp, lv, db)
-        st.rerun()
+    st.caption(f'显示前 {len(shown)} 个（共 {total} 个）。'
+               '**点任意一个按钮就开始生成**，结果直接显示在下面。')
+
+    # 每行 4 个按钮
+    for i in range(0, len(shown), 4):
+        cols = st.columns(4)
+        for col, row in zip(cols, shown[i:i + 4]):
+            sym = row['币种']
+            chg = row.get('24h涨跌%')
+            tag = ('/'.join(row.get('分类') or []))[:10]
+            label = f"{sym.replace('USDT','')}"
+            if chg is not None:
+                label += f" {'📈' if chg > 0 else '📉'}{chg:+.1f}%"
+            if col.button(label, key=f'disc_btn_{pick}_{sym}',
+                          help=row.get('筛选理由') or sym,
+                          use_container_width=True):
+                st.session_state['disc_task'] = plan_ui.start_task(
+                    sym, cfg, eq, rp, lv, db)
+                st.session_state['disc_sym'] = sym
+                st.rerun()
+
+    # 想选列表之外的，用这个下拉框
+    with st.expander('列表里没有？用下拉框选（400 个可选）'):
+        import symbol_picker
+        with st.container():
+            manual = symbol_picker.pick('币种', key='disc_any', default='BTCUSDT')
+            if st.button(f'🚀 生成 {manual} 的方案', key='disc_any_go'):
+                st.session_state['disc_task'] = plan_ui.start_task(
+                    manual, cfg, eq, rp, lv, db)
+                st.session_state['disc_sym'] = manual
+                st.rerun()
 
     dtid = st.session_state.get('disc_task')
     if dtid:
+        dsym = st.session_state.get('disc_sym', '')
         dres, dana = plan_ui.render_progress(dtid, key='disc_poll')
         if dres:
             st.divider()
-            st.success(f'✅ {target} 的方案已生成（就地显示，不用切页签）')
+            st.success(f'✅ {dsym} 的方案已生成（就地显示，不用切页签）')
             plan_ui.render_result(dres, dana)
-        elif tasks.status(dtid).get('状态') in ('排队中', '运行中'):
-            st.caption('👉 也可以切到「📋 交易方案」页签看，任务是一样的。')
 
 
 def render_watchlist():
