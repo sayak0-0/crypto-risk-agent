@@ -56,6 +56,59 @@ def render_result(result, analysis=None):
     if not result:
         return
 
+    # 双向方案（AI 方向不明确时）
+    if result.get('双向'):
+        ai = result.get('AI判断') or {}
+        st.warning(
+            f"**AI 没能确定方向**（判断「{ai.get('方向')}」，信心 {ai.get('信心')}）\n\n"
+            f"{ai.get('说明')}"
+        )
+        st.caption('⚠️ 下面**两个方向**的参数都是程序按公式算准的（止损/止盈/仓位/爆仓价），'
+                   '但「这一单该不该做」取决于你自己的判断 —— 工具不替你决定这个。')
+
+        left, right = st.columns(2)
+        for col, key, title in ((left, '做多', '📈 做多方案'),
+                                 (right, '做空', '📉 做空方案')):
+            side = result.get(key)
+            with col:
+                st.markdown(f'#### {title}')
+                if not side:
+                    st.info('这个方向算不出合理的止损位。')
+                    continue
+                st.markdown(f"**入场价**　{side['入场价']:,.8f}")
+                st.markdown(f"**止损价**　{side['止损价']:,.8f}"
+                            f"　（{side['止损依据']['名称']}，"
+                            f"距入场 {side['止损依据']['距离百分比']:.2f}%）")
+                st.markdown(f"**止盈价**　{side['止盈价']:,.8f}"
+                            f"　（盈亏比 {side['止盈依据']['盈亏比']:g}:1）")
+                pos = side['仓位']
+                st.markdown(f"**建议数量**　{pos['建议数量']:,.2f}")
+                st.markdown(f"**名义价值**　{pos['名义价值']:,.2f} U")
+                st.markdown(f"**止损亏损**　{pos['止损时实际亏损']:,.2f} U"
+                            f"（本金 {pos['止损时实际亏损比例']:.2f}%）")
+                st.markdown(f"**估算爆仓**　{pos['爆仓价']:,.8f}"
+                            + ('　✅' if not pos['爆仓先于止损'] else '　🚨 危险'))
+                st.markdown(f"**纪律检查**　{side['纪律检查']['结论']}")
+                mn = side.get('最小下单量')
+                if mn and not mn['通过']:
+                    st.error(mn['说明'])
+                with st.expander('候选止损位 / 分批建仓'):
+                    st.dataframe(pd.DataFrame(side['候选止损']), height=220)
+                    for b in (side.get('分批建仓') or [])[:-1]:
+                        st.caption(f"{b['批次']}　{b['价位']:,.8f}　{b['数量']:,.2f}　{b['占比']}")
+
+        with st.expander('🧠 为什么 AI 判断不了方向'):
+            st.markdown('**四位分析师的意见**')
+            for a in (analysis or {}).get('分析师') or []:
+                st.markdown(f"- **{a['_名称']}**（{a.get('_模型')}）："
+                            f"{a.get('方向')} 信心 {a.get('信心')}")
+                st.caption(f"　{a.get('核心理由')}")
+            ch = (analysis or {}).get('主持人') or {}
+            for k in ['共识', '分歧', '综合判断']:
+                if ch.get(k):
+                    st.markdown(f"**{k}**：{ch[k]}")
+        return
+
     # 不可执行
     if not result.get('可执行'):
         st.warning('**没有生成可执行方案**')

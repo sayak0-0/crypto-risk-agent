@@ -322,6 +322,43 @@ def ask_planner(symbol, price, analysis, stops, ratios, model=None, api_key=None
 
 # ---------------- 组装完整方案 ----------------
 
+def simple_plan(symbol, snap, ind, direction, equity, risk_pct, leverage,
+                fee_rate=0.0005, mmr=0.005, stop_name='2倍ATR'):
+    """不用模型选 —— 直接用程序默认止损位出一个方案。
+
+    为什么需要：方向不明确时，用户还是想知道「如果做，参数是多少」。
+    这时候没必要再多调一次模型（慢且贵），程序自己选最常用的 2 倍 ATR 就行。
+    """
+    price = snap['标记价']
+    atr = ind.get('ATR14') or price * 0.02
+    sp = swing_points(snap.get('K线'))
+    stops = stop_candidates(price, atr, ind, sp, direction)
+    if not stops:
+        return None
+    names = {x['名称']: x for x in stops}
+    chosen = names.get(stop_name) or list(names.values())[len(names) // 2]
+    stop = chosen['价格']
+    rr = 2.0
+    tp = rr_targets(price, stop, direction, (rr,))[0]['止盈价']
+    pos = risk.calc_position(equity, risk_pct, price, stop, leverage,
+                             direction, fee_rate, mmr, tp)
+    verdict, checks = risk.pre_trade_check(
+        equity, risk_pct, price, stop, leverage, direction, tp, fee_rate, mmr, 1.5)
+    min_check = check_min_notional(symbol, pos['名义价值'])
+    batches = []
+    if min_check['通过'] and pos['建议数量'] > 0:
+        batches = split_entries(price, stop, direction, pos['建议数量'], 3)
+    return {
+        '方向': '做多' if direction == 'long' else '做空',
+        '入场价': price, '止损价': stop, '止盈价': tp,
+        '止损依据': chosen, '止盈依据': {'盈亏比': rr},
+        '仓位': pos, '纪律检查': {'结论': verdict, '明细': checks},
+        '最小下单量': min_check, '分批建仓': batches,
+        '候选止损': stops,
+        '_程序默认': True,
+    }
+
+
 def build_plan(symbol, analysis, equity, risk_pct, leverage,
                fee_rate=0.0005, mmr=0.005, min_rr=1.5, model=None, api_key=None,
                user_forced=False):
@@ -338,10 +375,31 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
     elif direction_cn == '偏空':
         direction = 'short'
     else:
-        return {'可执行': False, '标的': market.normalize_symbol(symbol),
-                '原因': f'方向判断是「{direction_cn}」，不构成开仓依据。'
-                        '这不是失败，是专业的结论。',
-                '主持人': chair, '快照': snap, '指标': ind}
+        # ⚠️ 方向不明确时不能拒绝出方案 ——
+        #    用户找这个工具就是为了不自己判断方向，
+        #    如果反过来要求他先指定方向，就是循环依赖，违背初衷。
+        #    正确做法：把两个方向的参数都算给他，让「要不要做」由他自己决定。
+        long_p = simple_plan(symbol, snap, ind, 'long', equity, risk_pct,
+                             leverage, fee_rate, mmr)
+        short_p = simple_plan(symbol, snap, ind, 'short', equity, risk_pct,
+                              leverage, fee_rate, mmr)
+        if not long_p and not short_p:
+            return {'可执行': False, '标的': market.normalize_symbol(symbol),
+                    '原因': '算不出合理的止损位（波动太小或数据不足）。',
+                    '主持人': chair, '快照': snap, '指标': ind}
+        return {
+            '可执行': True, '双向': True,
+            '标的': market.normalize_symbol(symbol),
+            'AI判断': {
+                '方向': direction_cn,
+                '信心': chair.get('信心'),
+                '说明': (f'四个分析师没能得出一致方向（最终判断「{direction_cn}」，'
+                         f'信心 {chair.get("信心")}）。所以下面把**两个方向**的参数都算给你 ——'
+                         '**该不该做、做哪个方向，由你决定。**'),
+            },
+            '做多': long_p, '做空': short_p,
+            '主持人': chair, '快照': snap, '指标': ind,
+        }
 
     sp = swing_points(snap.get('K线'))
     stops = stop_candidates(price, atr, ind, sp, direction)

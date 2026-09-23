@@ -1919,7 +1919,11 @@ def t_format_plan_shows_fallback():
     assert '已回退' in txt, '兜底提示必须显示在方案文本里'
 
 def t_build_plan_unclear_direction():
-    """方向无法判断时，不该硬给方案。"""
+    """方向不明确时**不再拒绝** —— 改成给双向方案（产品初衷修正后的行为）。
+
+    旧行为是「方向中性就拒绝，让用户自己指定方向」，
+    但那形成循环依赖：用户找工具就是为了不自己判断方向。
+    """
     snap = {'标记价': 100.0, 'K线': KL}
     saved = _fake_market(snap, {'ATR14': 2.0, 'MA20': 98, 'MA60': 95})
     saved_chat = plan.chat
@@ -1931,9 +1935,10 @@ def t_build_plan_unclear_direction():
     finally:
         plan.market.snapshot, plan.market.compute_indicators = saved
         plan.chat = saved_chat
-    assert r['可执行'] is False
-    assert '不构成开仓依据' in r['原因'], r['原因']
-    assert not called, '方向不明时不该再调用模型（省一次钱）'
+    assert r['可执行'] is True, '方向不明时不该拒绝'
+    assert r['双向'] is True, r
+    assert not called, '方向不明时不该再调模型（用程序默认止损位）'
+
 
 def t_build_plan_respects_no_trade():
     """方案官说「不做」，就要真的不做。"""
@@ -2845,24 +2850,87 @@ def t_candidates_scale_with_volatility():
     assert len(extreme) >= 3, f'ATR 18% 也该有候选：{[c["名称"] for c in extreme]}'
 
 def t_plan_unexecutable_has_symbol():
-    """不可执行的方案也要带「标的」，否则界面显示 None。"""
-    snap = {'标记价': 100.0, 'K线': [[i, 100, 104, 96, 100, 10] for i in range(60)]}
+    """极端情况（候选全被过滤掉）也要带「标的」，不能显示 None。
+
+    注：加了 ATR 兜底和动态上下限后，这个分支已经很难自然触发了 ——
+    现在几乎任何币都能算出候选。所以这里用打桩强制走一次，确保字段齐全。
+    """
+    snap = {'标记价': 100.0, 'K线': KL}
     saved = _fake_market(snap, {'ATR14': 2.0, 'MA20': 98, 'MA60': 95})
+    saved_cands = plan.stop_candidates
+    saved_chat = plan.chat
+    plan.stop_candidates = lambda *a, **k: []        # 强制无候选
+    plan.chat = lambda *a, **k: ('{}', {}, 'm')
+    try:
+        r = plan.build_plan('BTC', _analysis('偏多', 60),
+                            equity=1000, risk_pct=1, leverage=10)
+    finally:
+        plan.market.snapshot, plan.market.compute_indicators = saved
+        plan.stop_candidates = saved_cands
+        plan.chat = saved_chat
+    assert r['可执行'] is False, r
+    assert r.get('标的') == 'BTCUSDT', f'标的不能是 None：{r.get("标的")}'
+    assert '止损位' in (r.get('原因') or ''), r.get('原因')
+
+
+for n, f in [('候选随波动率自适应（核心）', t_candidates_scale_with_volatility),
+             ('不可执行方案也带标的', t_plan_unexecutable_has_symbol)]:
+    check(n, f)
+
+
+def t_ambiguous_direction_gives_both_plans():
+    """方向不明确时不能拒绝 —— 要给两个方向的方案。
+
+    这是产品初衷：用户找这个工具就是为了不自己判断方向，
+    如果反过来要求他先指定方向，就是循环依赖。
+    """
+    snap = {'标记价': 100.0, 'K线': KL}
+    saved = _fake_market(snap, {'ATR14': 2.0, 'ATR14百分比': 2.0,
+                                'MA20': 98, 'MA60': 95})
     saved_chat = plan.chat
     called = []
     plan.chat = lambda *a, **k: (called.append(1), ('{}', {}, 'm'))[1]
     try:
         r = plan.build_plan('BTC', _analysis('中性', 20),
+                            equity=1000, risk_pct=1, leverage=10, fee_rate=0.0)
+    finally:
+        plan.market.snapshot, plan.market.compute_indicators = saved
+        plan.chat = saved_chat
+
+    assert r['可执行'] is True, '方向不明确时不能拒绝出方案'
+    assert r.get('双向') is True, r
+    assert r.get('做多') and r.get('做空'), '两个方向都要有'
+    assert not called, '方向不明确时不该再调模型（省时间省钱）'
+    # 两边参数都要算对
+    for key, want in (('做多', 'long'), ('做空', 'short')):
+        side = r[key]
+        assert side['方向'] == ('做多' if want == 'long' else '做空')
+        p = side['仓位']
+        approx(p['止损时实际亏损'], 10.0, 1e-6)
+        if want == 'long':
+            assert side['止损价'] < side['入场价'] < side['止盈价'], side
+        else:
+            assert side['止盈价'] < side['入场价'] < side['止损价'], side
+
+def t_ambiguous_still_has_ai_info():
+    snap = {'标记价': 100.0, 'K线': KL}
+    saved = _fake_market(snap, {'ATR14': 2.0, 'MA20': 98, 'MA60': 95})
+    saved_chat = plan.chat
+    plan.chat = lambda *a, **k: ('{}', {}, 'm')
+    try:
+        r = plan.build_plan('BTC', _analysis('无法判断', 15),
                             equity=1000, risk_pct=1, leverage=10)
     finally:
         plan.market.snapshot, plan.market.compute_indicators = saved
         plan.chat = saved_chat
-    assert r['可执行'] is False
-    assert r.get('标的') == 'BTCUSDT', f'标的不能是 None：{r.get("标的")}'
-    assert r['标的'] is not None
+    assert r['双向'] is True
+    ai = r.get('AI判断') or {}
+    assert ai.get('方向') == '无法判断'
+    assert ai.get('信心') == 15
+    assert '由你决定' in (ai.get('说明') or ''), ai
 
-for n, f in [('候选随波动率自适应（核心）', t_candidates_scale_with_volatility),
-             ('不可执行方案也带标的', t_plan_unexecutable_has_symbol)]:
+for n, f in [('方向不明确时给双向方案（核心）', t_ambiguous_direction_gives_both_plans),
+             ('双向方案仍带 AI 判断信息', t_ambiguous_still_has_ai_info)]:
     check(n, f)
 
 
