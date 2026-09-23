@@ -21,6 +21,7 @@ import llm
 import risk
 import tasks
 from common import get_env
+import symbol_picker
 
 DIRECTION_OPTIONS = ['由 AI 判断（推荐）', '只看多', '只看空']
 
@@ -65,7 +66,8 @@ def render(cfg=None):
 
     # ---------- 参数 ----------
     c1, c2, c3, c4 = st.columns(4)
-    symbol = c1.text_input('币种', value='BTC', key='pl_sym')
+    with c1:
+        symbol = symbol_picker.pick('币种', key='pl_sym', default='BTCUSDT')
     equity = c2.number_input('本金（USDT）', min_value=1.0,
                              value=float(cfg.get('本金', 1000.0)), step=100.0, key='pl_eq')
     risk_pct = c3.number_input('单笔风险（%）', min_value=0.1, max_value=10.0,

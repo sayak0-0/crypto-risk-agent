@@ -8,7 +8,7 @@ import json
 
 import requests
 
-from common import DATA_DIR
+from common import get_proxy, DATA_DIR
 import os
 
 WATCHLIST_PATH = os.path.join(DATA_DIR, '我的自选币种.json')
@@ -47,7 +47,7 @@ def save_watchlist(symbols):
 
 
 def _get(url, params=None):
-    r = requests.get(url, params=params, headers=UA, timeout=20)
+    r = requests.get(url, params=params, headers=UA, timeout=20, proxies=get_proxy())
     r.raise_for_status()
     return r.json()
 

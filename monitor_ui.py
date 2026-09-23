@@ -10,6 +10,7 @@ import llm
 import market
 import monitor
 from common import fmt_usdt, get_env, update_env
+import symbol_picker
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -173,7 +174,8 @@ def render(cfg):
     with st.expander('添加 / 更新一笔持仓', expanded=(len(positions) == 0)):
         with st.form('pos_form', clear_on_submit=True):
             p1 = st.columns(4)
-            p_sym = p1[0].text_input('币种', value='BTC')
+            with p1[0]:
+                p_sym = symbol_picker.pick('币种', key='pos_sym', default='BTCUSDT', compact=True)
             p_dir = p1[1].selectbox('方向', ['多', '空'])
             p_entry = p1[2].number_input('开仓价', min_value=0.0, value=0.0,
                                          format='%.6f', step=0.0)
@@ -215,7 +217,8 @@ def render(cfg):
         types = list(monitor.RULE_TYPES.keys())
         with st.form('rule_form', clear_on_submit=True):
             r1 = st.columns(3)
-            r_sym = r1[0].text_input('币种', value='BTC', key='r_sym')
+            with r1[0]:
+                r_sym = symbol_picker.pick('币种', key='rule_sym', default='BTCUSDT', compact=True)
             r_type = r1[1].selectbox('规则类型', types, key='r_type')
             r_th = r1[2].number_input(
                 '阈值', value=float(monitor.RULE_TYPES[r_type][1]),
@@ -236,7 +239,8 @@ def render(cfg):
 
         st.caption('懒得想阈值？一键加一套常用的：')
         qc1, qc2 = st.columns([1, 3])
-        quick_sym = qc1.text_input('币种', value='BTC', key='quick_sym')
+        with qc1:
+            quick_sym = symbol_picker.pick('币种', key='quick_sym', default='BTCUSDT', compact=True)
         if qc2.button('一键添加推荐规则组合'):
             try:
                 snap = market.snapshot(quick_sym, exchange)

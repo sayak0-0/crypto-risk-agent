@@ -112,3 +112,49 @@ def pct(x, digits=2):
         return f'{float(x):.{digits}f}%'
     except (TypeError, ValueError):
         return '-'
+
+def get_proxy():
+    """获取网络代理设置，返回 requests 需要的 dict 或 None。
+
+    为什么要这个：Python 的 requests 在 Windows 上**不会**自动读系统代理，
+    所以挂了梯子（系统代理模式）反而连不上交易所。
+    这里按三级顺序找：
+        ① .env / 环境变量里的 HTTPS_PROXY
+        ② Windows 系统代理（注册表里的 ProxyEnable + ProxyServer）
+        ③ 没有就是直连
+    """
+    p = get_env('HTTPS_PROXY') or get_env('HTTP_PROXY') or get_env('ALL_PROXY')
+    if p:
+        p = p.strip()
+        if not p.startswith('http'):
+            p = 'http://' + p
+        return {'http': p, 'https': p}
+
+    # 读 Windows 系统代理
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r'Software\Microsoft\Windows\CurrentVersion\Internet Settings')
+        enabled, _ = winreg.QueryValueEx(key, 'ProxyEnable')
+        if enabled:
+            server, _ = winreg.QueryValueEx(key, 'ProxyServer')
+            if server:
+                server = str(server).strip()
+                # 可能是 "host:port" 或 "http=host:port;https=host:port"
+                if '=' in server:
+                    parts = {}
+                    for seg in server.split(';'):
+                        if '=' in seg:
+                            k, v = seg.split('=', 1)
+                            parts[k.strip()] = ('http://' + v.strip()
+                                                if not v.strip().startswith('http')
+                                                else v.strip())
+                    if parts:
+                        return parts
+                if not server.startswith('http'):
+                    server = 'http://' + server
+                return {'http': server, 'https': server}
+    except Exception:
+        pass
+    return None

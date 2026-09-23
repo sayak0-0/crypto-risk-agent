@@ -22,7 +22,7 @@ from urllib.parse import urlencode
 
 import requests
 
-from common import get_env
+from common import get_proxy, get_env
 
 TIMEOUT = 15
 UA = {'User-Agent': 'trading-journal-agent'}
@@ -133,7 +133,7 @@ def binance_positions(api_key=None, api_secret=None):
     qs = urlencode({'timestamp': int(time.time() * 1000), 'recvWindow': 5000})
     sig = _hmac_hex(api_secret, qs)
     r = requests.get(f'https://fapi.binance.com/fapi/v2/positionRisk?{qs}&signature={sig}',
-                     headers={'X-MBX-APIKEY': api_key, **UA}, timeout=TIMEOUT)
+                     headers={'X-MBX-APIKEY': api_key, **UA}, timeout=TIMEOUT, proxies=get_proxy())
     data = _json_or_error(r, '币安')
     if isinstance(data, dict):
         data = [data]
@@ -263,7 +263,7 @@ def okx_positions(api_key=None, api_secret=None, passphrase=None):
     path = '/api/v5/account/positions?instType=SWAP'
     r = requests.get('https://www.okx.com' + path,
                      headers=_okx_headers(api_key, api_secret, passphrase, 'GET', path),
-                     timeout=TIMEOUT)
+                     timeout=TIMEOUT, proxies=get_proxy())
     body = _json_or_error(r, '欧易OKX')
     out = []
     for p in body.get('data', []):
@@ -309,7 +309,7 @@ def bybit_positions(api_key=None, api_secret=None):
     r = requests.get(f'https://api.bybit.com/v5/position/list?{qs}',
                      headers={'X-BAPI-API-KEY': api_key, 'X-BAPI-TIMESTAMP': ts,
                               'X-BAPI-SIGN': sign, 'X-BAPI-RECV-WINDOW': recv, **UA},
-                     timeout=TIMEOUT)
+                     timeout=TIMEOUT, proxies=get_proxy())
     body = _json_or_error(r, 'Bybit')
     items = (body.get('result') or {}).get('list') or []
     out = []

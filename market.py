@@ -7,6 +7,8 @@
 import time
 import requests
 
+from common import get_proxy
+
 TIMEOUT = 8
 UA = {'User-Agent': 'Mozilla/5.0 (trading-journal-agent)'}
 
@@ -42,7 +44,7 @@ def _okx_inst(symbol):
 
 
 def _get(url, params=None):
-    r = requests.get(url, params=params, headers=UA, timeout=TIMEOUT)
+    r = requests.get(url, params=params, headers=UA, timeout=TIMEOUT, proxies=get_proxy())
     r.raise_for_status()
     return r.json()
 

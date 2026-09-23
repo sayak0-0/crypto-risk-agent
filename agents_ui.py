@@ -9,6 +9,7 @@ import agents
 import llm
 import market
 import plan
+import symbol_picker
 
 
 def _dir_badge(d):
@@ -44,7 +45,8 @@ def render(cfg=None):
 
     # ---------- 控制区 ----------
     c1, c2, c3 = st.columns([2, 1, 2])
-    symbol = c1.text_input('币种', value='BTC', key='ag_sym')
+    with c1:
+        symbol = symbol_picker.pick('币种', key='ag_sym', default='BTCUSDT')
     exchange = c2.selectbox('数据源', ['自动', '币安', '欧易OKX', 'Bybit'], key='ag_ex')
     st.caption('每次分析 = 4 位分析师 + 1 位主持人 = 5 次模型调用，'
                '大约消耗 1 万 tokens。按 DeepSeek-V3 的价格算大约几分钱。')

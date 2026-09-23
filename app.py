@@ -22,6 +22,7 @@ import review
 import risk
 import watchlist_ui
 from common import get_env, load_config, save_config, fmt_usdt
+import symbol_picker
 
 st.set_page_config(page_title='合约交易助手', page_icon='📉', layout='wide')
 
@@ -410,7 +411,8 @@ with tab6:
     st.subheader('行情参考')
     st.caption('公开数据，只做客观描述。这里没有买卖信号，也不预测价格。')
     c1, c2, c3 = st.columns([2, 1, 1])
-    m_symbol = c1.text_input('币种', value='BTC', key='mkt_symbol')
+    with c1:
+        m_symbol = symbol_picker.pick('币种', key='mkt_symbol', default='BTCUSDT')
     m_exchange = c2.selectbox('数据源', ['自动', '币安', '欧易OKX', 'Bybit'])
     c3.write('')
     if c3.button('🔄 拉取最新数据'):

@@ -21,7 +21,7 @@
 """
 import requests
 
-from common import get_env
+from common import get_proxy, get_env
 
 DEFAULT_BASE_URL = 'https://api.siliconflow.cn/v1'
 DEFAULT_MODEL = 'deepseek-ai/DeepSeek-V3'
@@ -169,7 +169,8 @@ def chat(system, user, model=None, api_key_override=None, timeout=150,
     try:
         r = requests.post(chat_url(), json=body, timeout=timeout,
                           headers={'Authorization': 'Bearer ' + key,
-                                   'Content-Type': 'application/json'})
+                                   'Content-Type': 'application/json'},
+                          proxies=get_proxy())
     except requests.exceptions.Timeout:
         raise RuntimeError(f'模型响应超时（超过 {timeout} 秒）。'
                            '可以换个小一点的模型，或稍后重试。')
@@ -204,7 +205,7 @@ def list_models(api_key_override=None, timeout=20):
     if not key:
         raise RuntimeError('没有配置 API Key，无法列出模型。')
     r = requests.get(models_url(), headers={'Authorization': 'Bearer ' + key},
-                     timeout=timeout)
+                     timeout=timeout, proxies=get_proxy())
     if r.status_code >= 400:
         raise RuntimeError(f'获取模型列表失败（HTTP {r.status_code}）：{r.text[:200]}')
     return [m.get('id') for m in (r.json().get('data') or [])]

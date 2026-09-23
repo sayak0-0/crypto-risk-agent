@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 import watchlist
+import symbol_picker
 
 
 def render():
@@ -14,22 +15,21 @@ def render():
     )
 
     syms = watchlist.load_watchlist()
-    c1, c2, c3 = st.columns([3, 1, 1])
-    text = c1.text_area('自选币种（逗号或换行分隔）',
-                        value=', '.join(syms), height=90, key='wl_text')
-    min_vol = c2.number_input('最低成交额（亿USDT）', min_value=0.0, max_value=1000.0,
+    picked = symbol_picker.pick_multi('自选币种（可搜索、可多选）',
+                                      key='wl_multi', default=syms)
+
+    c1, c2 = st.columns(2)
+    min_vol = c1.number_input('最低成交额（亿USDT）', min_value=0.0, max_value=1000.0,
                               value=0.5, step=0.5, key='wl_vol')
-    top_by = c3.selectbox('排序方式', ['成交额', '涨跌幅', '资金费率'], key='wl_sort')
+    top_by = c2.selectbox('排序方式', ['成交额', '涨跌幅', '资金费率'], key='wl_sort')
 
     b1, b2 = st.columns([1, 3])
     if b1.button('🔍 扫描', type='primary', key='wl_run'):
-        new = [x.strip().upper() for x in
-               text.replace('\n', ',').replace('，', ',').split(',') if x.strip()]
-        if new:
-            watchlist.save_watchlist(new)
+        if picked:
+            watchlist.save_watchlist(picked)
         with st.spinner('扫描中……'):
             st.session_state['wl'] = watchlist.scan(
-                new or syms, min_volume_usd=min_vol * 1e8, top_by=top_by)
+                picked or syms, min_volume_usd=min_vol * 1e8, top_by=top_by)
     b2.caption('关注点里会自动标出：**资金费率极端值**（币圈公认的拥挤度信号）、'
                '24h 涨跌异动、贴近区间高低点、流动性不足。')
 

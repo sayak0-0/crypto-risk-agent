@@ -24,6 +24,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from common import get_proxy
+
 UA = {'User-Agent': 'Mozilla/5.0 (compatible; trading-journal-agent)'}
 
 FEEDS = [
@@ -141,7 +143,7 @@ def fetch_news(limit=60, timeout=20):
     out, errors = [], []
     for name, url, kind in FEEDS:
         try:
-            r = requests.get(url, headers=UA, timeout=timeout)
+            r = requests.get(url, headers=UA, timeout=timeout, proxies=get_proxy())
             if r.status_code != 200:
                 errors.append(f'{name}: HTTP {r.status_code}')
                 continue

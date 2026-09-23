@@ -21,6 +21,7 @@ import monitor
 import news
 import onchain
 import plan
+import symbol_picker
 import tasks
 import watchlist
 import review
@@ -2609,6 +2610,70 @@ for n, f in [('start立即返回', t_task_start_is_instant),
              ('失败原因被记录', t_task_failure_captured),
              ('干别的事不影响后台任务（核心）', t_task_survives_other_work),
              ('能查最近任务', t_task_latest_lookup)]:
+    check(n, f)
+
+
+# ---------------- 币种选择器 ----------------
+section('币种选择器')
+
+def t_symbol_fallback_list():
+    """兜底列表必须够用，且格式统一。"""
+    assert len(symbol_picker.FALLBACK) >= 20
+    assert all(s.endswith('USDT') for s in symbol_picker.FALLBACK)
+    assert 'BTCUSDT' in symbol_picker.FALLBACK
+    assert 'ETHUSDT' in symbol_picker.FALLBACK
+    # 不应该有重复
+    assert len(symbol_picker.FALLBACK) == len(set(symbol_picker.FALLBACK))
+
+def t_symbol_options_offline():
+    """拉不到行情时必须回落到内置列表，不能报错。"""
+    orig = symbol_picker.watchlist.market_overview
+    symbol_picker.watchlist.market_overview = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError('模拟断网'))
+    try:
+        symbol_picker.options.clear()          # 清缓存
+        syms, info, src = symbol_picker.options()
+        assert syms == symbol_picker.FALLBACK, '断网时应该用兜底列表'
+        assert info == {}
+        assert '失败' in src, src
+    finally:
+        symbol_picker.watchlist.market_overview = orig
+        symbol_picker.options.clear()
+
+def t_symbol_options_sort_and_filter():
+    """有数据时要按成交额排序，并过滤掉极小额合约。"""
+    fake = {
+        'AAAUSDT': {'币种': 'AAAUSDT', '24h成交额': 9e9, '24h涨跌%': 3.0},
+        'BBBUSDT': {'币种': 'BBBUSDT', '24h成交额': 5e9, '24h涨跌%': -1.0},
+        'TINYUSDT': {'币种': 'TINYUSDT', '24h成交额': 1e4, '24h涨跌%': 0.0},
+    }
+    orig = symbol_picker.watchlist.market_overview
+    symbol_picker.watchlist.market_overview = lambda *a, **k: fake
+    try:
+        symbol_picker.options.clear()
+        syms, info, src = symbol_picker.options()
+        assert syms[0] == 'AAAUSDT', f'应按成交额排序：{syms}'
+        assert syms[1] == 'BBBUSDT'
+        assert 'TINYUSDT' not in syms, '成交额过小的应被过滤'
+        assert '来自交易所' in src
+    finally:
+        symbol_picker.watchlist.market_overview = orig
+        symbol_picker.options.clear()
+
+def t_symbol_label_format():
+    """标签要能看出涨跌。"""
+    info = {'BTCUSDT': {'24h涨跌%': 2.5},
+            'ETHUSDT': {'24h涨跌%': -1.8},
+            'XXXUSDT': {}}
+    assert '📈' in symbol_picker._label('BTCUSDT', info)
+    assert '📉' in symbol_picker._label('ETHUSDT', info)
+    assert '+2.5%' in symbol_picker._label('BTCUSDT', info)
+    assert symbol_picker._label('XXXUSDT', info) == 'XXXUSDT', '没数据时只显示代码'
+
+for n, f in [('兜底币种列表', t_symbol_fallback_list),
+             ('断网时回落到内置列表', t_symbol_options_offline),
+             ('按成交额排序并过滤', t_symbol_options_sort_and_filter),
+             ('标签显示涨跌', t_symbol_label_format)]:
     check(n, f)
 
 

@@ -14,13 +14,15 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from common import get_proxy
+
 UA = {'User-Agent': 'Mozilla/5.0'}
 COINMETRICS = 'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics'
 DEFILLAMA_STABLE = 'https://stablecoins.llama.fi/stablecoincharts/all'
 
 
 def _get(url, params=None, timeout=25):
-    r = requests.get(url, params=params, headers=UA, timeout=timeout)
+    r = requests.get(url, params=params, headers=UA, timeout=timeout, proxies=get_proxy())
     r.raise_for_status()
     return r.json()
 
