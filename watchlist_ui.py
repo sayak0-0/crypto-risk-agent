@@ -145,6 +145,20 @@ def render_quick(cfg=None):
     db = pc4.toggle('开启辩论', value=True, key='disc_debate',
                     help='多 4 次模型调用，但能暴露对立观点')
 
+    dd = st.radio('方向', ['由 AI 判断', '我就要看多', '我就要看空'],
+                  horizontal=True, key='disc_dir',
+                  help='AI 判断为中性时会拒绝出方案（这是设计）。'
+                       '如果你就是想看某个方向的参数，选「我就要看多/看空」强制出。')
+
+    forced = None
+    if dd == '我就要看多':
+        forced = '偏多'
+    elif dd == '我就要看空':
+        forced = '偏空'
+    if forced:
+        st.caption('⚠️ 已指定方向 —— 方案官必须给出参数，但它的顾虑会写在「主要风险」里。'
+                   '**这个方向是你的决定，不是 AI 的判断。**')
+
     st.caption(f'显示前 {len(shown)} 个（共 {total} 个）。'
                '**点任意一个按钮就开始生成**，结果直接显示在下面。')
 
@@ -162,7 +176,7 @@ def render_quick(cfg=None):
                           help=row.get('筛选理由') or sym,
                           use_container_width=True):
                 st.session_state['disc_task'] = plan_ui.start_task(
-                    sym, cfg, eq, rp, lv, db)
+                    sym, cfg, eq, rp, lv, db, force_dir=forced)
                 st.session_state['disc_sym'] = sym
                 st.rerun()
 
@@ -173,7 +187,7 @@ def render_quick(cfg=None):
             manual = symbol_picker.pick('币种', key='disc_any', default='BTCUSDT')
             if st.button(f'🚀 生成 {manual} 的方案', key='disc_any_go'):
                 st.session_state['disc_task'] = plan_ui.start_task(
-                    manual, cfg, eq, rp, lv, db)
+                    manual, cfg, eq, rp, lv, db, force_dir=forced)
                 st.session_state['disc_sym'] = manual
                 st.rerun()
 

@@ -43,7 +43,8 @@ def _run_plan(symbol, exchange, equity, risk_pct, leverage, use_debate,
         symbol, analysis, equity=equity, risk_pct=risk_pct, leverage=leverage,
         fee_rate=float(cfg.get('手续费率', 0.0005)),
         mmr=float(cfg.get('维持保证金率', 0.005)),
-        min_rr=float(cfg.get('最低盈亏比', 1.5)))
+        min_rr=float(cfg.get('最低盈亏比', 1.5)),
+        user_forced=bool(force_dir))
     progress('完成')
     return {'方案': res, '分析': analysis}
 

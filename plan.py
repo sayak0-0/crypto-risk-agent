@@ -93,8 +93,16 @@ def stop_candidates(price, atr, ind, sp, direction):
             add('MA60上方', ind['MA60'] + atr * 0.3,
                 f"4小时 MA60 是 {ind['MA60']:.4f}")
 
-    # 去掉距离过近（<0.3%）或过远（>15%）的
-    out = [x for x in out if 0.3 <= x['距离百分比'] <= 15]
+    # 距离过滤：上下限都要跟着波动率走
+    # ⚠️ 原来上限写死 15%，高波动币（ATR>8%）会把 1.5/2/2.5 倍 ATR 全砍掉，
+    #    只剩 1 倍 ATR 一个候选，方案官无从选择只能说「不做」。
+    #    实测踩过：ATR 10% 的币只剩 1 个候选。
+    atr_pct = atr / price * 100 if price else 2.0
+    # 下限：至少 0.5 倍 ATR —— 止损比半个 ATR 还近，等于送钱给正常波动
+    lo = max(0.05, atr_pct * 0.5)
+    # 上限：至少 3.5 倍 ATR —— 否则高波动币会被固定上限砍光候选
+    hi = max(15.0, atr_pct * 3.5)
+    out = [x for x in out if lo <= x['距离百分比'] <= hi]
     # 按距离排序
     out.sort(key=lambda x: x['距离百分比'])
     return out
@@ -249,13 +257,19 @@ def _extract_json(t):
     return None
 
 
-def ask_planner(symbol, price, analysis, stops, ratios, model=None, api_key=None):
+def ask_planner(symbol, price, analysis, stops, ratios, model=None, api_key=None,
+                user_forced=False):
     """让方案官从候选里选一组。"""
     chair = analysis.get('主持人') or {}
     views = []
     for a in analysis.get('分析师') or []:
         views.append(f"- {a.get('_名称')}：{a.get('方向')}"
                      f"（信心 {a.get('信心')}）{str(a.get('核心理由'))[:80]}")
+    extra = ''
+    if user_forced:
+        extra = ('\n\n【重要】用户已经明确指定了方向，不接受「不做」。'
+                 '请务必从候选里选一个止损位，给出可执行的参数；'
+                 '你对风险的顾虑写在「主要风险」里，但不要用「不做」来回避。')
     prompt = PLANNER_PROMPT.format(
         symbol=symbol, price=f'{price:,.4f}',
         direction=chair.get('方向'), confidence=chair.get('信心'),
@@ -263,7 +277,7 @@ def ask_planner(symbol, price, analysis, stops, ratios, model=None, api_key=None
         stops=json.dumps([{'名称': s['名称'], '价格': s['价格'],
                            '距离百分比': s['距离百分比'], '说明': s['说明']}
                           for s in stops], ensure_ascii=False, indent=1),
-        ratios=', '.join(str(r) for r in ratios))
+        ratios=', '.join(str(r) for r in ratios)) + extra
     text, usage, used = chat(PLANNER_SYSTEM, prompt,
                              model=model or model_name('planner'),
                              api_key_override=api_key,
@@ -275,7 +289,8 @@ def ask_planner(symbol, price, analysis, stops, ratios, model=None, api_key=None
 # ---------------- 组装完整方案 ----------------
 
 def build_plan(symbol, analysis, equity, risk_pct, leverage,
-               fee_rate=0.0005, mmr=0.005, min_rr=1.5, model=None, api_key=None):
+               fee_rate=0.0005, mmr=0.005, min_rr=1.5, model=None, api_key=None,
+               user_forced=False):
     """把分析结果 + 结构位 + 仓位计算，组装成一个完整可执行的方案。"""
     snap = market.snapshot(symbol, '自动')
     ind = market.compute_indicators(snap.get('K线'), snap.get('标记价'))
@@ -289,7 +304,7 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
     elif direction_cn == '偏空':
         direction = 'short'
     else:
-        return {'可执行': False,
+        return {'可执行': False, '标的': market.normalize_symbol(symbol),
                 '原因': f'方向判断是「{direction_cn}」，不构成开仓依据。'
                         '这不是失败，是专业的结论。',
                 '主持人': chair, '快照': snap, '指标': ind}
@@ -297,14 +312,17 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
     sp = swing_points(snap.get('K线'))
     stops = stop_candidates(price, atr, ind, sp, direction)
     if not stops:
-        return {'可执行': False, '原因': '算不出合理的止损位（波动太小或数据不足）。',
+        return {'可执行': False, '标的': market.normalize_symbol(symbol),
+                '原因': '算不出合理的止损位（波动太小或数据不足）。',
                 '主持人': chair, '快照': snap, '指标': ind}
 
     ratios = [1.5, 2.0, 2.5, 3.0]
     picked, usage, used_model = ask_planner(symbol, price, analysis, stops, ratios,
-                                            model, api_key)
+                                            model, api_key,
+                                            user_forced=user_forced)
     if not picked:
-        return {'可执行': False, '原因': '方案官输出解析失败，请重试。',
+        return {'可执行': False, '标的': market.normalize_symbol(symbol),
+                '原因': '方案官输出解析失败，请重试。',
                 '主持人': chair, '快照': snap, '指标': ind,
                 '候选止损': stops}
 
@@ -332,7 +350,7 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
                           or '（模型未给出理由，此为程序默认值）')
 
     if str(picked.get('要不要做', '')).strip() == '不做':
-        return {'可执行': False,
+        return {'可执行': False, '标的': market.normalize_symbol(symbol),
                 '原因': f"方案官结论是「不做」。理由：{picked.get('选择理由', '')}",
                 '主持人': chair, '快照': snap, '指标': ind,
                 '候选止损': stops, '方案官': picked}

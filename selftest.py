@@ -1789,11 +1789,18 @@ def t_stop_candidates_short():
         assert c['价格'] > 100, f'做空止损必须在上方：{c}'
 
 def t_stop_filters_extremes():
-    """太近（<0.3%）和太远（>15%）的候选要被过滤掉。"""
+    """过滤规则要跟着波动率走：下限约 0.5 倍 ATR，上限至少 3.5 倍。"""
     sp = {'近期最低': 99.95, '前低': 50}
+    # ATR 0.1%（极小波动）：距入场 0.04% 的候选太近，该被过滤
     cs = plan.stop_candidates(100, 0.1, {'MA20': 99.99}, sp, 'long')
     for c in cs:
-        assert 0.3 <= c['距离百分比'] <= 15, c
+        assert c['距离百分比'] >= 0.05, f'太近的该被过滤：{c}'
+        assert c['距离百分比'] <= 15.0, c
+    # ATR 10%（高波动）：上限应放宽到 35%
+    hi = plan.stop_candidates(100, 10.0, {'MA20': 98, 'MA60': 95},
+                              {'近期最高': 106, '前高': 112}, 'short')
+    for c in hi:
+        assert c['距离百分比'] >= 5.0, f'高波动时太近的该被过滤：{c}' 
 
 def t_rr_targets():
     t = plan.rr_targets(100, 95, 'long', (2.0,))
@@ -2807,6 +2814,55 @@ for n, f in [('分类标签有客观依据', t_annotate_tags),
              ('字段缺失不崩', t_annotate_handles_missing_fields),
              ('全市场扫描限量', t_discover_limited),
              ('扫描失败不崩', t_discover_handles_error)]:
+    check(n, f)
+
+
+def t_candidates_scale_with_volatility():
+    """高波动币的候选不能被固定上限砍光 —— 实测踩过这个坑。
+
+    真实事故：ATR 10% 的币，固定 15% 上限把 1.5/2/2.5 倍 ATR 全砍掉，
+    只剩 1 个候选，方案官无从选择只能说「不做」。
+    """
+    kl = [[i, 100, 104, 96, 100, 10] for i in range(60)]
+    sp = plan.swing_points(kl, lookback=20)
+    ind = {'MA20': 95, 'MA60': 90}
+
+    # 低波动（ATR 2%）不该被放宽太多
+    lo_vol = plan.stop_candidates(100, 2.0, ind, sp, 'short')
+    assert len(lo_vol) >= 3, f'低波动也该有多个候选：{lo_vol}'
+
+    # 高波动（ATR 10%）必须有足够候选
+    hi_vol = plan.stop_candidates(100, 10.0, ind, sp, 'short')
+    assert len(hi_vol) >= 4, (
+        f'ATR 10% 时候选被砍到只剩 {len(hi_vol)} 个，'
+        f'方案官会无从选择：{[c["名称"] for c in hi_vol]}')
+    # 至少要覆盖到 2 倍 ATR
+    names = [c['名称'] for c in hi_vol]
+    assert '2倍ATR' in names, names
+
+    # ATR 更极端时也不能只剩一个
+    extreme = plan.stop_candidates(100, 18.0, ind, sp, 'short')
+    assert len(extreme) >= 3, f'ATR 18% 也该有候选：{[c["名称"] for c in extreme]}'
+
+def t_plan_unexecutable_has_symbol():
+    """不可执行的方案也要带「标的」，否则界面显示 None。"""
+    snap = {'标记价': 100.0, 'K线': [[i, 100, 104, 96, 100, 10] for i in range(60)]}
+    saved = _fake_market(snap, {'ATR14': 2.0, 'MA20': 98, 'MA60': 95})
+    saved_chat = plan.chat
+    called = []
+    plan.chat = lambda *a, **k: (called.append(1), ('{}', {}, 'm'))[1]
+    try:
+        r = plan.build_plan('BTC', _analysis('中性', 20),
+                            equity=1000, risk_pct=1, leverage=10)
+    finally:
+        plan.market.snapshot, plan.market.compute_indicators = saved
+        plan.chat = saved_chat
+    assert r['可执行'] is False
+    assert r.get('标的') == 'BTCUSDT', f'标的不能是 None：{r.get("标的")}'
+    assert r['标的'] is not None
+
+for n, f in [('候选随波动率自适应（核心）', t_candidates_scale_with_volatility),
+             ('不可执行方案也带标的', t_plan_unexecutable_has_symbol)]:
     check(n, f)
 
 
