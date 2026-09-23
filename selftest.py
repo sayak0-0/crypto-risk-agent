@@ -486,8 +486,10 @@ def t_app_precheck():
     [b for b in at.button if '检查这一单' in b.label][0].click()
     at.run()
     assert not at.exception, f'报错：{[e.value for e in at.exception]}'
-    assert len(at.success) == 1, f'应输出结论，实际 {len(at.success)}'
-    assert '通过' in at.success[0].value
+    # ⚠️ 不能数 success 个数 —— 后台任务完成也会产生 success
+    concl = [x.value for x in at.success if '结论' in str(x.value)]
+    assert concl, f'应输出开仓结论，实际 success={[str(x.value)[:40] for x in at.success]}'
+    assert '通过' in concl[0]
     vals = {m.label: m.value for m in at.metric}
     assert '建议开仓数量' in vals
     assert '止损时亏损' in vals
@@ -2632,7 +2634,7 @@ def t_symbol_options_offline():
         RuntimeError('模拟断网'))
     try:
         symbol_picker.options.clear()          # 清缓存
-        syms, info, src = symbol_picker.options()
+        syms, info, src, rec = symbol_picker.options()
         assert syms == symbol_picker.FALLBACK, '断网时应该用兜底列表'
         assert info == {}
         assert '失败' in src, src
@@ -2651,11 +2653,11 @@ def t_symbol_options_sort_and_filter():
     symbol_picker.watchlist.market_overview = lambda *a, **k: fake
     try:
         symbol_picker.options.clear()
-        syms, info, src = symbol_picker.options()
+        syms, info, src, rec = symbol_picker.options()
         assert syms[0] == 'AAAUSDT', f'应按成交额排序：{syms}'
         assert syms[1] == 'BBBUSDT'
         assert 'TINYUSDT' not in syms, '成交额过小的应被过滤'
-        assert '来自交易所' in src
+        assert '交易所' in src and '按成交额排序' in src, src
     finally:
         symbol_picker.watchlist.market_overview = orig
         symbol_picker.options.clear()
@@ -2669,6 +2671,16 @@ def t_symbol_label_format():
     assert '📉' in symbol_picker._label('ETHUSDT', info)
     assert '+2.5%' in symbol_picker._label('BTCUSDT', info)
     assert symbol_picker._label('XXXUSDT', info) == 'XXXUSDT', '没数据时只显示代码'
+    # 推荐的要有 ⭐ 和短标签（完整理由放在下面的提示区，不塞进下拉框）
+    lab = symbol_picker._label('BTCUSDT', info,
+                               {'BTCUSDT': '8小时资金费率 +0.067%，多头拥挤（做多要付钱）'})
+    assert lab.startswith('⭐'), lab
+    assert '多头拥挤' in lab, lab
+    assert len(lab) < 40, f'下拉标签不能太长，否则选框会被挤变形：{lab}'
+    # 理由里的关键信息要被压缩成短标签
+    assert symbol_picker._short_tag('24小时涨跌 -27.1%') == '今日异动'
+    assert symbol_picker._short_tag('价格在24小时区间底部') == '贴区间底'
+    assert symbol_picker._short_tag('这是你当前实际持有的仓位') == '我的持仓'
 
 for n, f in [('兜底币种列表', t_symbol_fallback_list),
              ('断网时回落到内置列表', t_symbol_options_offline),
