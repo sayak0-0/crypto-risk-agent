@@ -8,6 +8,8 @@
 import pandas as pd
 import streamlit as st
 
+import plan_ui
+import tasks
 import watchlist
 
 
@@ -35,7 +37,7 @@ def _table(rows, height=460):
     st.dataframe(show, height=min(height, 80 + 33 * len(show)))
 
 
-def render_quick():
+def render_quick(cfg=None):
     st.markdown('### 🔍 不知道看哪个？按这几类快速筛')
     st.warning(
         '**这是「事实筛选」，不是「推荐买入」。**\n\n'
@@ -84,9 +86,46 @@ def render_quick():
         if st.button(f"➕ 把这 {len(cats[pick]['数据'])} 个设为自选", key='disc_save'):
             syms = [x['币种'] for x in cats[pick]['数据']][:30]
             watchlist.save_watchlist(syms)
-            st.success(f'已设为自选（{len(syms)} 个）。切到上面「自选币种扫描」用它们。')
+            st.success(f'已设为自选（{len(syms)} 个）。下面的「自选币种扫描」可以用它们。')
 
-    st.caption('👉 看中某个币，去 **📋 交易方案** 页签，在币种下拉框里搜索它就行。')
+    # ---------- 看中了就直接生成方案（不用复制名字） ----------
+    st.divider()
+    st.markdown('#### 🎯 看中哪个？直接生成方案')
+    cand = ([x['币种'] for x in cats[pick]['数据']] if pick != '全部'
+            else [x['币种'] for x in rows if x.get('值得看')])
+    if not cand:
+        st.caption('这一分类里没有币种。')
+        return
+
+    cfg = cfg or {}
+    cc1, cc2, cc3, cc4 = st.columns([2, 1, 1, 1])
+    target = cc1.selectbox('币种', cand, key='disc_target',
+                           format_func=lambda s: f'{s}')
+    eq = cc2.number_input('本金', min_value=1.0,
+                          value=float(cfg.get('本金', 1000.0)), step=100.0,
+                          key='disc_eq', label_visibility='visible')
+    rp = cc3.number_input('风险%', min_value=0.1, max_value=10.0,
+                          value=float(cfg.get('单笔风险百分比', 1.0)), step=0.1,
+                          key='disc_rp')
+    lv = cc4.number_input('杠杆', min_value=1.0, max_value=125.0,
+                          value=float(cfg.get('杠杆', 10.0)), step=1.0,
+                          key='disc_lv')
+
+    db = st.toggle('⚔️ 开启多空辩论（多 4 次模型调用）', value=True, key='disc_debate')
+    if st.button(f'🚀 直接生成 {target} 的交易方案', type='primary', key='disc_go'):
+        st.session_state['disc_task'] = plan_ui.start_task(
+            target, cfg, eq, rp, lv, db)
+        st.rerun()
+
+    dtid = st.session_state.get('disc_task')
+    if dtid:
+        dres, dana = plan_ui.render_progress(dtid, key='disc_poll')
+        if dres:
+            st.divider()
+            st.success(f'✅ {target} 的方案已生成（就地显示，不用切页签）')
+            plan_ui.render_result(dres, dana)
+        elif tasks.status(dtid).get('状态') in ('排队中', '运行中'):
+            st.caption('👉 也可以切到「📋 交易方案」页签看，任务是一样的。')
 
 
 def render_watchlist():
@@ -126,8 +165,8 @@ def render_watchlist():
     _table(rows, height=420)
 
 
-def render():
-    render_quick()
+def render(cfg=None):
+    render_quick(cfg)
     st.divider()
     render_watchlist()
 

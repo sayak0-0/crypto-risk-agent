@@ -466,7 +466,7 @@ with tab6:
         st.info('点上面的「拉取最新数据」按钮获取行情。')
 
     st.divider()
-    watchlist_ui.render()
+    watchlist_ui.render(live_cfg)
 
 
 # ============ 页签7：市场监控 ============
