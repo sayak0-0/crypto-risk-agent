@@ -1,0 +1,32 @@
+# 密钥 —— 永不提交
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# 个人数据（这些是运行期产生的，属于隐私，绝不上传）
+data/我的*.csv
+data/我的*.json
+data/监控状态.json
+data/警报历史.jsonl
+data/判断记录.jsonl
+data/后台任务.json
+data/任务结果/
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# 打包产物
+dist/
+build/
+*.egg-info/
