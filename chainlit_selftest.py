@@ -72,6 +72,17 @@ def test_quote():
     assert '1.80%' in text
 
 
+def test_no_trade_plan():
+    text = app._plan_md({
+        '可执行': False, '标的': 'SOLUSDT',
+        '原因': '方案官结论是「不做」',
+        '主持人': {'方向': '偏空', '信心': 40},
+        '候选止损': [{'名称': 'MA20上方', '价格': 117.1, '距离百分比': 2.4}],
+    })
+    assert '暂不执行' in text and '不做' in text and '117.1000' in text
+    assert '0.0000' not in text
+
+
 def test_single_plan():
     plan = {
         '可执行': True, '标的': 'BTCUSDT', '方向': '做多',
@@ -124,7 +135,7 @@ def test_result_dispatch():
 
 
 if __name__ == '__main__':
-    tests = [test_actions, test_pick_intent_and_render, test_context_reference, test_self_info, test_account_render, test_quote, test_single_plan,
+    tests = [test_actions, test_pick_intent_and_render, test_context_reference, test_self_info, test_account_render, test_quote, test_no_trade_plan, test_single_plan,
              test_both_plan, test_result_dispatch]
     for fn in tests:
         fn()

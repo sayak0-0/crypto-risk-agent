@@ -266,7 +266,7 @@ def _result_md(intent, res):
 
 
 def _side_md(side):
-    if not side:
+    if not side or side.get('入场价') is None or side.get('止损价') is None:
         return '这个方向没有算出合理参数。'
     pos = side.get('仓位') or {}
     return '\n'.join([
@@ -286,6 +286,21 @@ def _side_md(side):
 def _plan_md(result):
     if not result:
         return '任务完成，但结果读取失败。'
+    if result.get('可执行') is False:
+        chair = result.get('主持人') or {}
+        out = [f"### {result.get('标的', '')} 暂不执行", '',
+               f"原因：{result.get('原因') or '没有给出原因'}"]
+        if chair:
+            out += ['', f"主持人判断：**{chair.get('方向', '未知')}**，"
+                        f"信心 **{chair.get('信心', '—')}**"]
+        stops = result.get('候选止损') or []
+        if stops:
+            out += ['', '**程序算出的候选止损位**']
+            for x in stops[:5]:
+                out.append(f"- {x.get('名称')}：{float(x.get('价格') or 0):,.4f}"
+                           f"（距入场 {float(x.get('距离百分比') or 0):.2f}%）")
+        out += ['', '“不做”也是正式结论：信号或结构与风险收益不匹配。']
+        return '\n'.join(out)
     if result.get('双向'):
         ai = result.get('AI判断') or {}
         out = [f"### {result.get('标的', '')} 双向方案", '',
