@@ -358,6 +358,7 @@ def simple_plan(symbol, snap, ind, direction, equity, risk_pct, leverage,
         batches = split_entries(price, stop, direction, pos['建议数量'], 3)
     return {
         '方向': '做多' if direction == 'long' else '做空',
+        '杠杆': leverage,
         '入场价': price, '止损价': stop, '止盈价': tp,
         '止损依据': chosen, '止盈依据': {'盈亏比': rr},
         '仓位': pos, '纪律检查': {'结论': verdict, '明细': checks},
@@ -365,6 +366,40 @@ def simple_plan(symbol, snap, ind, direction, equity, risk_pct, leverage,
         '候选止损': stops,
         '_程序默认': True,
     }
+
+
+def directional_lean(analysis):
+    """从分析师投票推导弱倾向，避免最终只剩“无法判断”。"""
+    score = 0.0
+    total = 0.0
+    for a in (analysis or {}).get('分析师') or []:
+        if a.get('_名称') == '风控官':
+            continue
+        try:
+            conf = max(0.0, min(100.0, float(a.get('信心') or 0)))
+        except Exception:
+            conf = 0.0
+        total += conf
+        if a.get('方向') == '偏多':
+            score += conf
+        elif a.get('方向') == '偏空':
+            score -= conf
+    if score > 0:
+        lean = '偏多'
+    elif score < 0:
+        lean = '偏空'
+    else:
+        chg = 0.0
+        for a in (analysis or {}).get('分析师') or []:
+            for v in (a.get('_数据') or {}).values():
+                try:
+                    chg = float(str(v).replace('%', '').split('（')[0])
+                except Exception:
+                    pass
+        lean = '偏空' if chg < 0 else '偏多'
+    ratio = abs(score) / total if total else 0.0
+    strength = '强' if ratio >= 0.5 else '中' if ratio >= 0.2 else '弱'
+    return lean, strength, round(score, 1)
 
 
 def build_plan(symbol, analysis, equity, risk_pct, leverage,
@@ -393,14 +428,17 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
                               leverage, fee_rate, mmr)
         if not long_p and not short_p:
             return {'可执行': False, '标的': market.normalize_symbol(symbol),
+                    '杠杆': leverage,
                     '原因': '算不出合理的止损位（波动太小或数据不足）。',
                     '主持人': chair, '快照': snap, '指标': ind}
         return {
             '可执行': True, '双向': True,
-            '标的': market.normalize_symbol(symbol),
+            '标的': market.normalize_symbol(symbol), '杠杆': leverage,
             'AI判断': {
                 '方向': direction_cn,
                 '信心': chair.get('信心'),
+                '倾向': chair.get('倾向') or directional_lean(analysis)[0],
+                '倾向强度': chair.get('倾向强度') or directional_lean(analysis)[1],
                 '说明': (f'四个分析师没能得出一致方向（最终判断「{direction_cn}」，'
                          f'信心 {chair.get("信心")}）。所以下面把**两个方向**的参数都算给你 ——'
                          '**该不该做、做哪个方向，由你决定。**'),
@@ -413,6 +451,7 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
     stops = stop_candidates(price, atr, ind, sp, direction)
     if not stops:
         return {'可执行': False, '标的': market.normalize_symbol(symbol),
+                '杠杆': leverage,
                 '原因': '算不出合理的止损位（波动太小或数据不足）。',
                 '主持人': chair, '快照': snap, '指标': ind}
 
@@ -455,6 +494,7 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
 
     if str(picked.get('要不要做', '')).strip() == '不做':
         return {'可执行': False, '标的': market.normalize_symbol(symbol),
+                '杠杆': leverage,
                 '原因': f"方案官结论是「不做」。理由：{picked.get('选择理由', '')}",
                 '主持人': chair, '快照': snap, '指标': ind,
                 '候选止损': stops, '方案官': picked}
@@ -492,6 +532,9 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
         '最小下单量': min_check,
         '分批建仓': batches,
         '方向': '做多' if direction == 'long' else '做空',
+        '杠杆': leverage,
+        '倾向': chair.get('倾向') or directional_lean(analysis)[0],
+        '倾向强度': chair.get('倾向强度') or directional_lean(analysis)[1],
         '方向依据': chair,
         '分析师观点': analysis.get('分析师'),
         '入场价': price,

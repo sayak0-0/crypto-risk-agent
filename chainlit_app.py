@@ -272,6 +272,7 @@ def _side_md(side):
         return '这个方向没有算出合理参数。'
     pos = side.get('仓位') or {}
     return '\n'.join([
+        f"- 杠杆：**{side.get('杠杆', '—')}x**",
         f"- 入场价：**{side.get('入场价', 0):,.4f}**",
         f"- 止损价：**{side.get('止损价', 0):,.4f}**"
         f"（距入场 {side.get('止损依据', {}).get('距离百分比', 0):.2f}%）",
@@ -294,7 +295,8 @@ def _plan_md(result):
                f"原因：{result.get('原因') or '没有给出原因'}"]
         if chair:
             out += ['', f"主持人判断：**{chair.get('方向', '未知')}**，"
-                        f"信心 **{chair.get('信心', '—')}**"]
+                        f"信心 **{chair.get('信心', '—')}**，"
+                        f"倾向 **{chair.get('倾向') or result.get('倾向') or '未给出'}**"]
         stops = result.get('候选止损') or []
         if stops:
             out += ['', '**程序算出的候选止损位**']
@@ -306,12 +308,15 @@ def _plan_md(result):
     if result.get('双向'):
         ai = result.get('AI判断') or {}
         out = [f"### {result.get('标的', '')} 双向方案", '',
-               f"AI 方向判断：**{ai.get('方向', '无法判断')}**（信心 {ai.get('信心', '—')}）", '',
+               f"AI 方向判断：**{ai.get('方向', '无法判断')}**（信心 {ai.get('信心', '—')}）",
+               f"弱倾向：**{ai.get('倾向') or '未给出'}**（{ai.get('倾向强度') or '弱'}）", '',
                ai.get('说明') or '', '']
         for key in ('做多', '做空'):
             out += [f"## {key}", '', _side_md(result.get(key)), '']
         return '\n'.join(out)
     out = [f"### {result.get('标的', '')} {result.get('方向', '')}", '',
+           f"倾向：**{result.get('倾向') or result.get('方向') or '未给出'}**"
+           f"（{result.get('倾向强度') or '中'}）", '',
            _side_md(result), '']
     if result.get('主要风险'):
         out += [f"主要风险：{result['主要风险']}", '']

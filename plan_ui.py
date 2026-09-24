@@ -121,14 +121,16 @@ def render_result(result, analysis=None):
         return
 
     st.markdown(f"### {result['标的']}　{result['方向']}")
-    c1, c2, c3 = st.columns(3)
-    c1.metric('入场价', f"{result['入场价']:,.4f}")
-    c2.metric('止损价', f"{result['止损价']:,.4f}",
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric('杠杆', f"{result.get('杠杆', '—')}x")
+    c2.metric('入场价', f"{result['入场价']:,.4f}")
+    c3.metric('止损价', f"{result['止损价']:,.4f}",
               f"距入场 {result['止损依据']['距离百分比']:.2f}%")
-    c3.metric('止盈价', f"{result['止盈价']:,.4f}",
+    c4.metric('止盈价', f"{result['止盈价']:,.4f}",
               f"盈亏比 {result['止盈依据']['盈亏比']:g}:1")
 
     p = result['仓位']
+    st.caption(f"方向倾向：{result.get('倾向') or result.get('方向')}（{result.get('倾向强度') or '中'}）")
     c4, c5, c6, c7 = st.columns(4)
     c4.metric('建议数量', f"{p['建议数量']:.6f}")
     c5.metric('名义价值', f"{p['名义价值']:,.2f} U")
