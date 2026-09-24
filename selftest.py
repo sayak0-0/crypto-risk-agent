@@ -3070,6 +3070,20 @@ def t_chat_plan_intent_has_symbol():
     intent, sym = chat.classify('帮我分析一下 ETH')
     assert intent == 'plan' and sym == 'ETHUSDT', (intent, sym)
 
+def t_chat_pick_plan():
+    """推荐并生成方案，必须先选币，不能直接默认BTC。"""
+    assert chat.classify('推荐一个币并生成方案')[0] == 'pick_plan'
+    old_pick, old_plan = chat.run_pick, chat.run_plan
+    chat.run_pick = lambda limit=8: {'候选': [
+        {'币种': 'NEARUSDT', '筛选理由': '流动性好'}]}
+    chat.run_plan = lambda symbol, cfg=None: 'TASK-' + symbol
+    try:
+        res = chat.run_pick_plan({})
+    finally:
+        chat.run_pick, chat.run_plan = old_pick, old_plan
+    assert res['币种'] == 'NEARUSDT' and res['task_id'] == 'TASK-NEARUSDT'
+
+
 def t_chat_fallback_no_prediction():
     """兜底回答不能假装确定预测，但可以说明会给条件化方向倾向。"""
     orig = chat.run_quote
@@ -3147,6 +3161,7 @@ for n, f in [('识别币种', t_chat_find_symbol),
              ('兜底不预测涨跌', t_chat_fallback_no_prediction),
              ('快捷操作列表', t_chat_quick_actions),
              ('新闻风险不预测方向', t_chat_news_no_prediction),
+             ('推荐币并生成方案', t_chat_pick_plan),
              ('币安余额问答', t_chat_account_question),
              ('止盈止损挂单问答', t_chat_order_question)]:
     check(n, f)

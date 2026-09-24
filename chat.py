@@ -44,7 +44,7 @@ RULES = [
 ]
 
 LABELS = {
-    'plan': '生成交易方案', 'scan': '扫描全市场', 'pick': '筛选可观察币种',
+    'plan': '生成交易方案', 'pick_plan': '筛选并生成方案', 'scan': '扫描全市场', 'pick': '筛选可观察币种',
     'news': '新闻风险',
     'account': '查看账户', 'orders': '查看挂单/止盈止损',
     'positions': '查看持仓', 'review': '复盘', 'dashboard': '绩效看板',
@@ -74,6 +74,9 @@ def classify(text):
     if not t:
         return 'chat', None
     sym = find_symbol(t)
+    # “推荐一个币并生成方案”必须先筛选，不能直接默认 BTC。
+    if re.search(r'(推荐|选|挑|找).{0,12}(币|标的).{0,20}(方案|开仓|做单)', t, re.I):
+        return 'pick_plan', None
     # 解释型问题优先当问答，避免“资金费率”里的“费率”把它误判成查行情。
     if re.search(r'(什么是|是什么意思|解释一下|解释下|怎么理解|有什么区别|为什么会|为什么是)', t, re.I):
         return 'chat', sym
@@ -210,6 +213,22 @@ def run_dashboard():
             '按情绪': metrics.by_group(d, '情绪')}
 
 
+def run_pick_plan(cfg=None, limit=8):
+    """先筛选候选，再为排名第一的币生成方案。"""
+    picked = run_pick(limit=limit)
+    if picked.get('错误'):
+        return {'类型': '方案任务', '错误': picked['错误']}
+    rows = picked.get('候选') or []
+    if not rows:
+        return {'类型': '方案任务', '错误': '当前没有筛出可生成方案的币种。'}
+    chosen = rows[0]
+    sym = chosen.get('币种')
+    reason = chosen.get('筛选理由') or f"成交额第 {chosen.get('成交额排名')} 名"
+    tid = run_plan(sym, cfg)
+    return {'类型': '方案任务', 'task_id': tid, '币种': sym,
+            '推荐理由': reason, '候选': rows[:5]}
+
+
 def run_plan(symbol, cfg=None, use_debate=True, force_dir=None):
     import plan_ui
     import exchange_sync
@@ -307,6 +326,8 @@ def dispatch(text, cfg=None, allow_llm=False, extra_context=None):
         return intent, run_scan()
     if intent == 'pick':
         return intent, run_pick()
+    if intent == 'pick_plan':
+        return intent, run_pick_plan(cfg)
     if intent == 'news':
         return intent, run_news()
     if intent == 'account':

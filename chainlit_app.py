@@ -366,12 +366,29 @@ async def _handle_prompt(text):
             step.input = effective_text
             step.output = '正在处理'
 
-        if intent == 'plan':
-            sym = symbol or 'BTCUSDT'
+        if intent in ('plan', 'pick_plan'):
+            if intent == 'pick_plan':
+                picked = await cl.make_async(chat.run_pick_plan)(cfg)
+                if picked.get('错误'):
+                    status.content = '筛选失败：' + picked['错误']
+                    await status.update()
+                    return
+                sym = picked.get('币种') or 'BTCUSDT'
+                tid = picked.get('task_id')
+                reason = picked.get('推荐理由') or ''
+                cands = picked.get('候选') or []
+                cl.user_session.set('last_candidates',
+                                    [x.get('币种') for x in cands if x.get('币种')])
+                status.content = (
+                    f'筛选后推荐 **{sym}**，正在生成方案…\n\n'
+                    f'推荐依据：{reason}'
+                )
+            else:
+                sym = symbol or 'BTCUSDT'
+                tid = await cl.make_async(chat.run_plan)(sym, cfg)
+                status.content = f'正在生成 **{sym}** 方案…'
             cl.user_session.set('last_symbol', sym)
-            status.content = f'正在生成 **{sym}** 方案…'
             await status.update()
-            tid = await cl.make_async(chat.run_plan)(sym, cfg)
             started = time.time()
             while True:
                 await asyncio.sleep(2)
