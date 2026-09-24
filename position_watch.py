@@ -56,6 +56,7 @@ def add_plan(plan):
         '保证金': float(pos.get('占用保证金') or 0),
         '开仓时间': _now(),
         '最后检查': '',
+        '最后日检': '',
         '下次检查': _now(),
         '当前价': None,
         '浮动盈亏': None,
@@ -70,23 +71,23 @@ def add_plan(plan):
                 and x.get('方向') == direction):
             return x
     rows.append(record)
-    observe(record, force=True)
+    observe(record, force_daily=True)
     _save(rows)
     return record
 
 
-def _due(record, force=False, due_hours=DUE_HOURS):
-    if force or not record.get('最后检查'):
+def _daily_due(record, due_hours=DUE_HOURS):
+    if not record.get('最后日检'):
         return True
     try:
-        last = datetime.strptime(record['最后检查'], '%Y-%m-%d %H:%M:%S')
+        last = datetime.strptime(record['最后日检'], '%Y-%m-%d %H:%M:%S')
         return datetime.now() - last >= timedelta(hours=due_hours)
     except Exception:
         return True
 
 
-def observe(record, force=False):
-    if record.get('已平仓') or not _due(record, force):
+def observe(record, force_daily=False):
+    if record.get('已平仓'):
         return record
     try:
         snap = market.snapshot(record['币种'], '自动')
@@ -94,7 +95,6 @@ def observe(record, force=False):
     except Exception as e:
         record['状态'] = f'行情失败:{type(e).__name__}'
         record['最后检查'] = _now()
-        record['下次检查'] = (datetime.now() + timedelta(hours=DUE_HOURS)).strftime('%Y-%m-%d %H:%M:%S')
         return record
     sign = 1 if record.get('方向') == 'long' else -1
     qty = float(record.get('数量') or 0)
@@ -119,22 +119,22 @@ def observe(record, force=False):
         state = '持平'
     record.update({
         '当前价': price,
-        '浮动盈亏': round(pnl, 4),
-        '保证金收益率': round(roi, 3),
+        '浮动盈亏': round(pnl, 6),
+        '保证金收益率': round(roi, 4),
         '状态': state,
         '最后检查': _now(),
-        '下次检查': (datetime.now() + timedelta(hours=DUE_HOURS)).strftime('%Y-%m-%d %H:%M:%S'),
     })
+    if force_daily or _daily_due(record):
+        record['最后日检'] = _now()
+        record['下次检查'] = (datetime.now() + timedelta(hours=DUE_HOURS)).strftime('%Y-%m-%d %H:%M:%S')
     return record
 
 
 def update_all(force=False, due_hours=DUE_HOURS):
     rows = _load()
     for row in rows:
-        observe(row, force=force)
-        if due_hours != DUE_HOURS:
-            # 手动指定周期时，用统一的下次检查时间。
-            row['下次检查'] = (datetime.now() + timedelta(hours=due_hours)).strftime('%Y-%m-%d %H:%M:%S')
+        force_daily = force or _daily_due(row, due_hours)
+        observe(row, force_daily=force_daily)
     _save(rows)
     return rows
 
@@ -164,7 +164,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--once', action='store_true')
     ap.add_argument('--force', action='store_true')
-    ap.add_argument('--interval', type=int, default=3600, help='检查频率，默认每小时看一次')
+    ap.add_argument('--interval', type=int, default=300, help='行情刷新频率，默认5分钟')
     ap.add_argument('--due-hours', type=int, default=24)
     args = ap.parse_args()
     if args.once:
