@@ -24,6 +24,7 @@ ALIASES = {
     'link': 'LINKUSDT', 'arb': 'ARBUSDT',
     'trump': 'TRUMPUSDT', '特朗普币': 'TRUMPUSDT',
     'zec': 'ZECUSDT', 'uni': 'UNIUSDT', 'sui': 'SUIUSDT',
+    'near': 'NEARUSDT', 'bch': 'BCHUSDT',
     'pepe': 'PEPEUSDT', 'wif': 'WIFUSDT',
 }
 
@@ -55,13 +56,13 @@ LABELS = {
 def find_symbol(text):
     """从一句话里找出币种代码。"""
     t = (text or '').lower()
-    m = re.search(r'\b([a-z0-9]{2,15})\s*[-/]?\s*usdt\b', t)
+    m = re.search(r'(?<![a-z0-9])([a-z0-9]{2,15})\s*[-/]?\s*usdt(?![a-z0-9])', t)
     if m:
         return m.group(1).upper() + 'USDT'
     for alias, sym in sorted(ALIASES.items(), key=lambda x: -len(x[0])):
         if alias in t:
             return sym
-    m = re.search(r'\b([A-Z]{2,6})\b', text or '')
+    m = re.search(r'(?<![A-Za-z0-9])([A-Z]{2,10})(?![A-Za-z0-9])', text or '')
     if m and m.group(1) not in ('USDT', 'AI', 'OK', 'API'):
         return m.group(1) + 'USDT'
     return None

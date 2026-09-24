@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Chainlit 原型界面：复用现有对话、方案和风控后端。"""
 import asyncio
+import re
 import time
 
 import chainlit as cl
@@ -302,32 +303,82 @@ def _plan_md(result):
     return '\n'.join(out)
 
 
+_CN_NUM = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10}
+
+
+def _resolve_reference_values(text, candidates=None, last_symbol=''):
+    raw = str(text or '').strip()
+    candidates = list(candidates or [])
+    last_symbol = str(last_symbol or '').strip()
+    explicit = chat.find_symbol(raw)
+    if explicit:
+        text = re.sub(r'这个币|这个|它|该币|这只', explicit, raw, count=1)
+        return text, explicit
+    m = re.search(r'第\s*([0-9]+|[一二三四五六七八九十]+)\s*个', raw)
+    if m and candidates:
+        token = m.group(1)
+        n = int(token) if token.isdigit() else _CN_NUM.get(token, 0)
+        if 1 <= n <= len(candidates):
+            sym = candidates[n - 1]
+            if re.search(r'方案|开仓|分析|怎么看|能做', raw):
+                return f'给我 {sym} 的开仓方案', sym
+            return f'帮我分析一下 {sym}', sym
+    if re.search(r'这个|这个币|它|该币|这只', raw) and last_symbol:
+        return re.sub(r'这个币|这个|它|该币|这只', last_symbol, raw, count=1), last_symbol
+    if re.search(r'开仓方案|生成方案', raw) and not chat.find_symbol(raw) and last_symbol:
+        return f'给我 {last_symbol} 的开仓方案', last_symbol
+    return raw, chat.find_symbol(raw)
+
+
+def _resolve_reference(text):
+    """把“第六个币/这个/它”解析成上一轮候选或币种。"""
+    return _resolve_reference_values(
+        text,
+        candidates=cl.user_session.get('last_candidates') or [],
+        last_symbol=cl.user_session.get('last_symbol') or '',
+    )
+
+
 async def _handle_prompt(text):
+    seq = int(cl.user_session.get('request_seq') or 0) + 1
+    cl.user_session.set('request_seq', seq)
+    effective_text, resolved_symbol = _resolve_reference(text)
     cfg = load_config()
-    intent, symbol = chat.classify(text)
+    intent, symbol = chat.classify(effective_text)
+    symbol = symbol or resolved_symbol
     label = chat.LABELS.get(intent, '对话')
+    if symbol:
+        cl.user_session.set('last_symbol', symbol)
 
     status = cl.Message(content='正在思考…')
     await status.send()
 
+    def stale():
+        return int(cl.user_session.get('request_seq') or 0) != seq
+
     try:
-        if is_self_question(text):
+        if is_self_question(effective_text):
             status.content = _self_info_md()
             await status.update()
             return
 
         async with cl.Step(name=f'识别问题：{label}', type='tool') as step:
-            step.input = text
+            step.input = effective_text
             step.output = '正在处理'
 
         if intent == 'plan':
             sym = symbol or 'BTCUSDT'
+            cl.user_session.set('last_symbol', sym)
             status.content = f'正在生成 **{sym}** 方案…'
             await status.update()
             tid = await cl.make_async(chat.run_plan)(sym, cfg)
             started = time.time()
             while True:
                 await asyncio.sleep(2)
+                if stale():
+                    status.content = '这个任务已被新的请求替换。'
+                    await status.update()
+                    return
                 stt = tasks.status(tid)
                 state = stt.get('状态')
                 if state in ('排队中', '运行中'):
@@ -351,15 +402,27 @@ async def _handle_prompt(text):
         rag_context = ''
         if rag.is_ready() and intent not in ('plan', 'quote', 'dashboard', 'review', 'account', 'orders'):
             rag_docs = await cl.make_async(rag.search)(
-                text, top_k=5, symbols=[symbol] if symbol else None)
+                effective_text, top_k=5, symbols=[symbol] if symbol else None)
             rag_context = rag.format_context(rag_docs)
 
         async with cl.Step(name='正在调用数据工具', type='tool') as step:
-            step.input = text
+            step.input = effective_text
             _, result = await cl.make_async(chat.dispatch)(
-                text, cfg, allow_llm=True, extra_context=rag_context)
+                effective_text, cfg, allow_llm=True, extra_context=rag_context)
             step.output = f'完成，使用 {len(rag_docs)} 条公开资料' if rag_docs else '完成'
 
+        if stale():
+            return
+        if intent == 'pick':
+            cl.user_session.set('last_candidates', [
+                x.get('币种') for x in (result.get('候选') or []) if x.get('币种')])
+        elif intent == 'scan':
+            cand = []
+            for v in (result.get('分类') or {}).values():
+                for row in (v.get('数据') or []):
+                    if row.get('币种') and row['币种'] not in cand:
+                        cand.append(row['币种'])
+            cl.user_session.set('last_candidates', cand[:20])
         content = _result_md(intent, result)
         if rag_docs and intent not in ('plan', 'quote', 'dashboard', 'review', 'account', 'orders'):
             sources = rag.format_sources(rag_docs)

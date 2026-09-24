@@ -51,6 +51,14 @@ def test_account_render():
     assert '止损市价' in text and '78,000.000000' in text
 
 
+def test_context_reference():
+    cands = ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','NEARUSDT']
+    text, sym = app._resolve_reference_values('第六个币 给我个开仓方案', cands, 'BTCUSDT')
+    assert 'NEARUSDT' in text and sym == 'NEARUSDT'
+    text, sym = app._resolve_reference_values('我说的是NEARUSDT 给这个的方案', cands, 'BTCUSDT')
+    assert sym == 'NEARUSDT' and 'NEARUSDT' in text
+
+
 def test_quote():
     text = app._quote_md({
         '币种': 'BTCUSDT',
@@ -116,7 +124,7 @@ def test_result_dispatch():
 
 
 if __name__ == '__main__':
-    tests = [test_actions, test_pick_intent_and_render, test_self_info, test_account_render, test_quote, test_single_plan,
+    tests = [test_actions, test_pick_intent_and_render, test_context_reference, test_self_info, test_account_render, test_quote, test_single_plan,
              test_both_plan, test_result_dispatch]
     for fn in tests:
         fn()
