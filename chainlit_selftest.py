@@ -6,6 +6,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 import chainlit_app as app
+import conversation_planner as planner
 
 
 def test_actions():
@@ -59,6 +60,22 @@ def test_context_reference():
     assert sym == 'NEARUSDT' and 'NEARUSDT' in text
     text, sym = app._resolve_reference_values('换一个', ['SOLUSDT','HYPEUSDT','NEARUSDT'], 'SOLUSDT')
     assert sym == 'HYPEUSDT' and 'HYPEUSDT' in text
+
+
+def test_planner():
+    assert planner.should_use('BTC 现价多少', 'quote', 'BTCUSDT') is False
+    assert planner.should_use('换一个', 'chat', None) is True
+    old = planner.llm.chat
+    planner.llm.chat = lambda *a, **k: (
+        '{"action":"recommend_plan","symbol":"HYPEUSDT",'
+        '"exclude_symbols":["SOLUSDT"],"confidence":0.9}', {}, planner.MODEL)
+    try:
+        r = planner.plan('换一个', {'last_symbol': 'SOLUSDT',
+                                    'last_candidates': ['SOLUSDT', 'HYPEUSDT']})
+    finally:
+        planner.llm.chat = old
+    assert r['symbol'] == 'HYPEUSDT'
+    assert r['normalized_text'] == '给我 HYPEUSDT 的开仓方案'
 
 
 def test_quote():
@@ -137,7 +154,7 @@ def test_result_dispatch():
 
 
 if __name__ == '__main__':
-    tests = [test_actions, test_pick_intent_and_render, test_context_reference, test_self_info, test_account_render, test_quote, test_no_trade_plan, test_single_plan,
+    tests = [test_actions, test_pick_intent_and_render, test_context_reference, test_planner, test_self_info, test_account_render, test_quote, test_no_trade_plan, test_single_plan,
              test_both_plan, test_result_dispatch]
     for fn in tests:
         fn()

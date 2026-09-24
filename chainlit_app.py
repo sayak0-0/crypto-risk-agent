@@ -7,6 +7,7 @@ import time
 import chainlit as cl
 
 import chat
+import conversation_planner
 import llm
 import plan
 import rag
@@ -156,6 +157,7 @@ def _self_info_md():
         '### 当前配置',
         '',
         f'- 普通问答/解释：**{qa_model}**',
+        '- 对话规划器：**Qwen/Qwen3.5-35B-A3B**',
         f'- 默认模型：**{default_model}**',
         f'- 方案主持人：**{chair_model}**',
         f'- 方案官：**{planner_model}**',
@@ -359,19 +361,65 @@ def _resolve_reference(text):
     )
 
 
+def _remember(role, content):
+    hist = list(cl.user_session.get('history') or [])
+    hist.append({'role': role, 'content': str(content or '')[:800]})
+    cl.user_session.set('history', hist[-10:])
+
+
 async def _handle_prompt(text):
     seq = int(cl.user_session.get('request_seq') or 0) + 1
     cl.user_session.set('request_seq', seq)
-    effective_text, resolved_symbol = _resolve_reference(text)
+    raw_text = str(text or '').strip()
+    status = cl.Message(content='正在理解上下文…')
+    await status.send()
+
+    if is_self_question(raw_text):
+        content = _self_info_md()
+        status.content = content
+        await status.update()
+        _remember('user', raw_text)
+        _remember('assistant', content)
+        return
+
+    pre_intent, pre_symbol = chat.classify(raw_text)
+    decision = None
+    if conversation_planner.should_use(raw_text, pre_intent, pre_symbol):
+        state = {
+            'history': cl.user_session.get('history') or [],
+            'last_symbol': cl.user_session.get('last_symbol') or '',
+            'last_candidates': cl.user_session.get('last_candidates') or [],
+        }
+        decision = await cl.make_async(conversation_planner.plan)(raw_text, state)
+
+    if decision and decision.get('confidence', 0) >= 0.45:
+        action = decision.get('action')
+        if action == 'cancel':
+            content = '好，已忽略上一件事。'
+            status.content = content
+            await status.update()
+            _remember('user', raw_text); _remember('assistant', content)
+            return
+        if action == 'clarify' or (action == 'chat' and decision.get('clarify')):
+            content = decision.get('clarify') or '我没完全理解，你再说具体一点。'
+            status.content = content
+            await status.update()
+            _remember('user', raw_text); _remember('assistant', content)
+            return
+        effective_text = decision.get('normalized_text') or raw_text
+        resolved_symbol = decision.get('symbol')
+    else:
+        effective_text, resolved_symbol = _resolve_reference(raw_text)
+
+    _remember('user', raw_text)
     cfg = load_config()
     intent, symbol = chat.classify(effective_text)
     symbol = symbol or resolved_symbol
     label = chat.LABELS.get(intent, '对话')
     if symbol:
         cl.user_session.set('last_symbol', symbol)
-
-    status = cl.Message(content='正在思考…')
-    await status.send()
+    status.content = '正在思考…'
+    await status.update()
 
     def stale():
         return int(cl.user_session.get('request_seq') or 0) != seq
@@ -429,12 +477,16 @@ async def _handle_prompt(text):
                     await status.update()
                     continue
                 if state == '失败':
-                    status.content = f"方案生成失败：{stt.get('错误') or '未知错误'}"
+                    content = f"方案生成失败：{stt.get('错误') or '未知错误'}"
+                    status.content = content
                     await status.update()
+                    _remember('assistant', content)
                     return
                 loaded = tasks.load_result(tid) or {}
-                status.content = _plan_md(loaded.get('方案'))
+                content = _plan_md(loaded.get('方案'))
+                status.content = content
                 await status.update()
+                _remember('assistant', content)
                 return
 
         rag_docs = []
@@ -469,6 +521,7 @@ async def _handle_prompt(text):
                 content += '\n\n---\n**本次检索到的公开资料**\n\n' + sources
         status.content = content
         await status.update()
+        _remember('assistant', content)
     except Exception as e:
         status.content = f'处理失败：`{type(e).__name__}: {e}`'
         await status.update()
