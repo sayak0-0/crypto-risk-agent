@@ -3030,7 +3030,7 @@ def t_chat_plan_intent_has_symbol():
     assert intent == 'plan' and sym == 'ETHUSDT', (intent, sym)
 
 def t_chat_fallback_no_prediction():
-    """兜底回答不能预测涨跌，必须说明自己不预测。"""
+    """兜底回答不能假装确定预测，但可以说明会给条件化方向倾向。"""
     orig = chat.run_quote
     chat.run_quote = lambda s: {'类型': '行情', '币种': 'BTCUSDT',
                                 '快照': {'标记价': 86000.0}, '指标': {}}
@@ -3039,9 +3039,10 @@ def t_chat_fallback_no_prediction():
     finally:
         chat.run_quote = orig
     txt = r['内容']
-    assert '不预测涨跌' in txt, txt
-    assert '抛硬币' in txt, '要说明为什么不做预测'
-    assert '会涨' not in txt.replace('不预测涨跌', ''), '不能给涨跌判断'
+    assert '方向倾向' in txt, txt
+    assert '不保证正确' in txt, '必须标明方向判断不是确定预测'
+    assert '抛硬币' in txt, '要说明方向判断的局限'
+    assert '会涨' not in txt, '兜底文本不能替用户下确定结论'
 
 def t_chat_news_no_prediction():
     """新闻入口只输出波动风险，不把规则结果包装成涨跌预测。"""
