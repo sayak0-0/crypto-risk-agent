@@ -241,6 +241,19 @@ python rag_import.py --source both --limit 5000
 
 向量化在本机运行，默认使用多语言模型 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`。索引文件保存在 `data/RAG_新闻/`，不会提交到 Git。
 
+实时更新：
+
+```bash
+# 单次补充实时新闻和 RSS
+python rag_watch.py --once
+
+# 常驻运行：每 60 秒抓公开实时新闻，每 10 轮补一次 RSS
+python rag_watch.py --interval 60 --rss-every 10
+```
+
+Windows 也可以双击根目录的 **`启动实时RAG更新.bat`**。实时源使用免费的 `cryptocurrency.cv` 新闻 API；免费层每轮返回最新 3 条，RSS 负责扩大来源覆盖。
+
+
 
 ### 想后台一直盯盘？
 

@@ -53,22 +53,11 @@ def _doc_text(doc):
     return '\n'.join(x for x in parts if x and x != 'nan').strip()
 
 
-def build_index(documents, replace=True):
-    """建立或合并索引。返回索引统计。"""
-    documents = [dict(x) for x in documents if _doc_text(x)]
-    if not documents:
-        raise ValueError('没有可索引的文档')
-    if not replace and DOCS_PATH.exists():
-        old = load_documents()
-        seen = {str(x.get('id') or '') + '|' + str(x.get('链接') or '') for x in old}
-        for x in documents:
-            key = str(x.get('id') or '') + '|' + str(x.get('链接') or '')
-            if key not in seen:
-                old.append(x)
-                seen.add(key)
-        documents = old
+def _dedup_key(doc):
+    return str(doc.get('id') or '') + '|' + str(doc.get('链接') or '') + '|' + str(doc.get('标题') or '')
 
-    vectors = embed([_doc_text(x) for x in documents])
+
+def _save(documents, vectors):
     RAG_DIR.mkdir(parents=True, exist_ok=True)
     tmp_docs = DOCS_PATH.with_suffix('.jsonl.tmp')
     with tmp_docs.open('w', encoding='utf-8') as f:
@@ -77,18 +66,48 @@ def build_index(documents, replace=True):
     os.replace(tmp_docs, DOCS_PATH)
     tmp_vec = VECTORS_PATH.with_suffix('.npy.tmp')
     np.save(tmp_vec, vectors)
-    os.replace(str(tmp_vec) + '.npy' if not str(tmp_vec).endswith('.npy') else tmp_vec,
-               VECTORS_PATH)
-    meta = {
-        '模型': MODEL_NAME,
-        '文档数': len(documents),
-        '维度': int(vectors.shape[1]),
-    }
+    os.replace(str(tmp_vec) + '.npy', VECTORS_PATH)
+    meta = {'模型': MODEL_NAME, '文档数': len(documents),
+            '维度': int(vectors.shape[1])}
     META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2),
                          encoding='utf-8')
     _CACHE.update({'mtime_docs': None, 'mtime_vec': None,
                    'docs': None, 'vectors': None})
     return meta
+
+
+def append_index(documents):
+    """只向量化新增文档，适合新闻实时增量更新。"""
+    documents = [dict(x) for x in documents if _doc_text(x)]
+    old_docs = load_documents()
+    old_vectors = np.load(VECTORS_PATH).astype('float32') if VECTORS_PATH.exists() else None
+    seen = {_dedup_key(x) for x in old_docs}
+    fresh = []
+    for doc in documents:
+        key = _dedup_key(doc)
+        if key not in seen:
+            fresh.append(doc)
+            seen.add(key)
+    if not fresh:
+        return {'模型': MODEL_NAME, '文档数': len(old_docs), '新增': 0}
+    new_vectors = embed([_doc_text(x) for x in fresh])
+    all_docs = old_docs + fresh
+    all_vectors = new_vectors if old_vectors is None else np.vstack([old_vectors, new_vectors])
+    meta = _save(all_docs, all_vectors)
+    meta['新增'] = len(fresh)
+    return meta
+
+
+def build_index(documents, replace=True):
+    """建立或合并索引。返回索引统计。"""
+    documents = [dict(x) for x in documents if _doc_text(x)]
+    if not documents:
+        raise ValueError('没有可索引的文档')
+    if not replace:
+        return append_index(documents)
+
+    vectors = embed([_doc_text(x) for x in documents])
+    return _save(documents, vectors)
 
 
 def load_documents():

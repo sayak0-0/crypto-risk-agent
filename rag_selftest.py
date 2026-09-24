@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 import rag
+from rag_import import _symbols_from_text
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -58,6 +59,11 @@ def main():
         sol = rag.search('Solana 有什么新闻', top_k=2, symbols=['SOLUSDT'])
         assert sol and sol[0]['id'] == '2', sol
         assert rag.status()['就绪'] is True
+        extra = rag.append_index([docs[0], {'id': '3', '标题': 'Ethereum ETF update', '摘要': 'ETH ETF', '来源': 'test', '时间': '2026-01-03', '币种': ['ETHUSDT'], '链接': 'https://example.com/3'}])
+        assert extra.get('新增') == 1, extra
+        assert extra.get('文档数') == 3, extra
+        syms = _symbols_from_text('Bitcoin and Ethereum ETF news')
+        assert 'BTCUSDT' in syms and 'ETHUSDT' in syms, syms
     for k, v in old.items():
         setattr(rag, k, v)
     print('公开新闻 RAG 自测通过 4 项')

@@ -7,6 +7,7 @@ import heapq
 import json
 import itertools
 import os
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -130,6 +131,55 @@ def dataset_documents(csv_path, limit=5000, since='2021-01-01'):
     return out
 
 
+LIVE_API = 'https://cryptocurrency.cv/api/news'
+
+
+def _symbols_from_text(text):
+    t = str(text or '')
+    aliases = {
+        'bitcoin': 'BTCUSDT', 'btc': 'BTCUSDT', 'ethereum': 'ETHUSDT',
+        'eth': 'ETHUSDT', 'solana': 'SOLUSDT', 'sol': 'SOLUSDT',
+        'ripple': 'XRPUSDT', 'xrp': 'XRPUSDT', 'dogecoin': 'DOGEUSDT',
+        'doge': 'DOGEUSDT', 'cardano': 'ADAUSDT', 'ada': 'ADAUSDT',
+        'chainlink': 'LINKUSDT', 'link': 'LINKUSDT', 'bnb': 'BNBUSDT',
+        'binance coin': 'BNBUSDT', 'shiba': 'SHIBUSDT', 'avalanche': 'AVAXUSDT',
+    }
+    low = t.lower()
+    out = {sym for word, sym in aliases.items() if word in low}
+    for code in re.findall(r'\b(BTC|ETH|SOL|XRP|DOGE|ADA|LINK|BNB|SHIB|AVAX|ZEC|UNI|SUI)\b', t.upper()):
+        out.add(code + 'USDT')
+    return sorted(out)
+
+
+def live_documents(limit=200):
+    """从免费实时加密新闻 API 拉取当前文章。"""
+    r = requests.get(LIVE_API, params={'limit': int(limit)}, timeout=45,
+                     proxies=get_proxy())
+    r.raise_for_status()
+    data = r.json()
+    rows = data.get('articles') or data.get('data') or []
+    out = []
+    for item in rows:
+        title = str(item.get('title') or '').strip()
+        link = str(item.get('link') or item.get('url') or '').strip()
+        if not title or not link:
+            continue
+        text = title + ' ' + str(item.get('description') or '')
+        out.append({
+            'id': 'live-' + hashlib.md5(link.encode('utf-8')).hexdigest()[:14],
+            '标题': title,
+            '摘要': str(item.get('description') or '').strip(),
+            '来源': str(item.get('source') or 'cryptocurrency.cv'),
+            '时间': str(item.get('pubDate') or '')[:19],
+            '链接': link,
+            '币种': _symbols_from_text(text),
+            '类型': '实时新闻API',
+            '分类': str(item.get('category') or ''),
+            '可信度': item.get('credibility'),
+        })
+    return out
+
+
 def rss_documents(limit=200):
     items, _ = news.fetch_news(limit=limit)
     out = []
@@ -153,10 +203,11 @@ def rss_documents(limit=200):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--source', choices=['dataset', 'rss', 'both'], default='both')
+    ap.add_argument('--source', choices=['dataset', 'rss', 'live', 'both'], default='both')
     ap.add_argument('--limit', type=int, default=5000)
     ap.add_argument('--dataset', help='已下载的 RAR 路径')
     ap.add_argument('--force-download', action='store_true')
+    ap.add_argument('--live-limit', type=int, default=200)
     args = ap.parse_args()
 
     docs = []
@@ -174,8 +225,17 @@ def main():
         rss = rss_documents(limit=min(200, args.limit))
         docs.extend(rss)
         print(f'实时 RSS：{len(rss)} 条')
-    meta = rag.build_index(docs, replace=True)
-    print('索引完成：' + str(meta))
+
+    if docs:
+        meta = rag.build_index(docs, replace=True)
+        print('基础索引：' + str(meta))
+
+    if args.source in ('live', 'both'):
+        live = live_documents(limit=args.live_limit)
+        meta = rag.append_index(live)
+        print(f'实时新闻 API：{len(live)} 条，增量索引：{meta}')
+    if not docs and args.source not in ('live', 'both'):
+        raise RuntimeError('没有可导入的数据')
 
 
 if __name__ == '__main__':
