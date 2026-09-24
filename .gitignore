@@ -37,3 +37,5 @@ build/
 **/.chainlit/translations/
 **/.files/
 data/RAG_新闻/
+data/开仓观察.json
+public/positions.json

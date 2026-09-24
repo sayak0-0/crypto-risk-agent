@@ -32,3 +32,15 @@ a { text-decoration: none; }
 @media (max-width: 768px) {
   #crypto-quick-actions {width: calc(100% - 24px); bottom: 76px;}
 }
+#crypto-position-watch {
+  position: fixed; left: 12px; bottom: 164px; width: 252px;
+  max-height: 42vh; overflow-y: auto; z-index: 59; color: #374151;
+  background: rgba(247,247,245,.96); border: 1px solid #e5e7eb;
+  border-radius: 10px; padding: 8px;
+}
+.pw-title {font-size: 12px; font-weight: 600; color: #6b7280; margin: 2px 0 6px;}
+.pw-item {padding: 7px 2px; border-top: 1px solid #ececec;}
+.pw-head {display:flex; justify-content:space-between; gap:6px; font-size:12px;}
+.pw-meta {font-size:11px; color:#6b7280; margin-top:3px; line-height:1.35;}
+.pw-up {color:#0f8a5f;} .pw-down {color:#c2413b;}
+@media (max-width: 768px) {#crypto-position-watch {width:calc(100% - 24px); bottom:120px;}}

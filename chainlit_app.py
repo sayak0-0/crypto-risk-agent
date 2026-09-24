@@ -10,6 +10,7 @@ import chat
 import conversation_planner
 import llm
 import plan
+import position_watch
 import rag
 import tasks
 from common import load_config
@@ -493,8 +494,16 @@ async def _handle_prompt(text):
                     _remember('assistant', content)
                     return
                 loaded = tasks.load_result(tid) or {}
-                content = _plan_md(loaded.get('方案'))
+                plan_result = loaded.get('方案') or {}
+                content = _plan_md(plan_result)
                 status.content = content
+                if plan_result.get('可执行') and not plan_result.get('双向'):
+                    status.actions = [
+                        cl.Action(name='mark_opened', label='已开仓，加入24小时观察',
+                                  payload={'plan': plan_result}),
+                        cl.Action(name='mark_not_opened', label='暂未开仓',
+                                  payload={}),
+                    ]
                 await status.update()
                 _remember('assistant', content)
                 return
@@ -563,6 +572,23 @@ async def on_quick_action(action: cl.Action):
     prompt = (action.payload or {}).get('prompt')
     if prompt:
         await _handle_prompt(prompt)
+
+
+@cl.action_callback('mark_opened')
+async def on_mark_opened(action: cl.Action):
+    try:
+        rec = await cl.make_async(position_watch.add_plan)(
+            (action.payload or {}).get('plan') or {})
+        await cl.Message(
+            content=(f"已将 **{rec['币种']} {rec['方向中文']}** 加入左侧观察。\n\n"
+                     f"下次检查：{rec.get('下次检查')}") ).send()
+    except Exception as e:
+        await cl.Message(content=f'加入观察失败：{e}').send()
+
+
+@cl.action_callback('mark_not_opened')
+async def on_mark_not_opened(action: cl.Action):
+    await cl.Message(content='已记录为暂未开仓，不会加入24小时观察。').send()
 
 
 @cl.set_starters

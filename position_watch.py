@@ -1,0 +1,186 @@
+# -*- coding: utf-8 -*-
+"""开仓观察：用户确认已开仓后，每24小时更新一次市场盈亏。"""
+import argparse
+import json
+import time
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import market
+from common import DATA_DIR
+
+WATCH_PATH = Path(DATA_DIR) / '开仓观察.json'
+PUBLIC_PATH = Path(__file__).resolve().parent / 'public' / 'positions.json'
+DUE_HOURS = 24
+
+
+def _now():
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _load():
+    if not WATCH_PATH.exists():
+        return []
+    try:
+        data = json.loads(WATCH_PATH.read_text(encoding='utf-8'))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save(rows):
+    WATCH_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = WATCH_PATH.with_suffix('.tmp')
+    tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding='utf-8')
+    tmp.replace(WATCH_PATH)
+    export_public(rows)
+
+
+def add_plan(plan):
+    if not plan or not plan.get('可执行') or plan.get('双向'):
+        raise ValueError('只能观察已经生成的可执行单方向方案')
+    symbol = market.normalize_symbol(plan.get('标的'))
+    direction = 'long' if plan.get('方向') == '做多' else 'short'
+    pos = plan.get('仓位') or {}
+    record = {
+        'id': uuid.uuid4().hex[:12],
+        '币种': symbol,
+        '方向': direction,
+        '方向中文': plan.get('方向'),
+        '入场价': float(plan.get('入场价') or 0),
+        '止损价': float(plan.get('止损价') or 0),
+        '止盈价': float(plan.get('止盈价') or 0),
+        '杠杆': float(plan.get('杠杆') or 0),
+        '数量': float(pos.get('建议数量') or 0),
+        '保证金': float(pos.get('占用保证金') or 0),
+        '开仓时间': _now(),
+        '最后检查': '',
+        '下次检查': _now(),
+        '当前价': None,
+        '浮动盈亏': None,
+        '保证金收益率': None,
+        '状态': '等待首检',
+        '已平仓': False,
+    }
+    rows = _load()
+    # 同一标的同方向已有活动记录时不重复添加。
+    for x in rows:
+        if (not x.get('已平仓') and x.get('币种') == symbol
+                and x.get('方向') == direction):
+            return x
+    rows.append(record)
+    observe(record, force=True)
+    _save(rows)
+    return record
+
+
+def _due(record, force=False, due_hours=DUE_HOURS):
+    if force or not record.get('最后检查'):
+        return True
+    try:
+        last = datetime.strptime(record['最后检查'], '%Y-%m-%d %H:%M:%S')
+        return datetime.now() - last >= timedelta(hours=due_hours)
+    except Exception:
+        return True
+
+
+def observe(record, force=False):
+    if record.get('已平仓') or not _due(record, force):
+        return record
+    try:
+        snap = market.snapshot(record['币种'], '自动')
+        price = float(snap['标记价'])
+    except Exception as e:
+        record['状态'] = f'行情失败:{type(e).__name__}'
+        record['最后检查'] = _now()
+        record['下次检查'] = (datetime.now() + timedelta(hours=DUE_HOURS)).strftime('%Y-%m-%d %H:%M:%S')
+        return record
+    sign = 1 if record.get('方向') == 'long' else -1
+    qty = float(record.get('数量') or 0)
+    entry = float(record.get('入场价') or 0)
+    margin = float(record.get('保证金') or 0)
+    pnl = (price - entry) * qty * sign
+    roi = pnl / margin * 100 if margin else 0.0
+    stop, target = float(record.get('止损价') or 0), float(record.get('止盈价') or 0)
+    if sign > 0 and price <= stop:
+        state = '已触发止损'
+    elif sign < 0 and price >= stop:
+        state = '已触发止损'
+    elif sign > 0 and price >= target:
+        state = '已触发止盈'
+    elif sign < 0 and price <= target:
+        state = '已触发止盈'
+    elif pnl > 0:
+        state = '盈利'
+    elif pnl < 0:
+        state = '亏损'
+    else:
+        state = '持平'
+    record.update({
+        '当前价': price,
+        '浮动盈亏': round(pnl, 4),
+        '保证金收益率': round(roi, 3),
+        '状态': state,
+        '最后检查': _now(),
+        '下次检查': (datetime.now() + timedelta(hours=DUE_HOURS)).strftime('%Y-%m-%d %H:%M:%S'),
+    })
+    return record
+
+
+def update_all(force=False, due_hours=DUE_HOURS):
+    rows = _load()
+    for row in rows:
+        observe(row, force=force)
+        if due_hours != DUE_HOURS:
+            # 手动指定周期时，用统一的下次检查时间。
+            row['下次检查'] = (datetime.now() + timedelta(hours=due_hours)).strftime('%Y-%m-%d %H:%M:%S')
+    _save(rows)
+    return rows
+
+
+def close_watch(watch_id):
+    rows = _load()
+    for row in rows:
+        if row.get('id') == watch_id:
+            row['已平仓'] = True
+            row['状态'] = '已结束观察'
+            break
+    _save(rows)
+    return rows
+
+
+def export_public(rows=None):
+    rows = _load() if rows is None else rows
+    active = [x for x in rows if not x.get('已平仓')]
+    active.sort(key=lambda x: x.get('开仓时间', ''), reverse=True)
+    PUBLIC_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PUBLIC_PATH.write_text(json.dumps(active[:20], ensure_ascii=False, indent=2),
+                           encoding='utf-8')
+    return active[:20]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--once', action='store_true')
+    ap.add_argument('--force', action='store_true')
+    ap.add_argument('--interval', type=int, default=3600, help='检查频率，默认每小时看一次')
+    ap.add_argument('--due-hours', type=int, default=24)
+    args = ap.parse_args()
+    if args.once:
+        rows = update_all(force=args.force, due_hours=args.due_hours)
+        print(f'更新 {len(rows)} 条，活动 {len(export_public(rows))} 条')
+        return
+    while True:
+        try:
+            rows = update_all(force=args.force, due_hours=args.due_hours)
+            print(f'[{_now()}] 活动观察 {len(export_public(rows))} 条', flush=True)
+        except KeyboardInterrupt:
+            return
+        except Exception as e:
+            print(f'[{_now()}] 更新失败 {type(e).__name__}: {e}', flush=True)
+        time.sleep(max(60, args.interval))
+
+
+if __name__ == '__main__':
+    main()
