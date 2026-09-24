@@ -204,8 +204,19 @@ def snapshot(symbol, exchange='自动'):
                 return snap
             errors.append(f'{name}: 没有拿到价格')
         except Exception as e:
-            errors.append(f'{name}: {e}')
-    raise RuntimeError('所有数据源都失败了，请检查网络。详情：' + ' | '.join(errors))
+            errors.append(f'{name}: {type(e).__name__}')
+    # 把技术错误翻译成能照着做的大白话
+    raise RuntimeError(
+        '连不上交易所行情（币安 / 欧易OKX / Bybit 都试过了）\n\n'
+        '**最可能的原因**：国内网络访问不了这些交易所。\n\n'
+        '**怎么解决**：挂上梯子后，在 `.env` 里加一行你的代理地址：\n'
+        '```\nHTTPS_PROXY=127.0.0.1:7890\n```\n'
+        '（`7890` 换成你梯子的端口，Clash 常见是 7890，v2ray 常见是 10809）\n\n'
+        '**如果已经挂了梯子**：\n'
+        '· 确认是「系统代理」模式（不是仅浏览器代理）\n'
+        '· 或者直接在上面那行手填代理地址\n'
+        '· 也可能只是网络临时抽风，过一会儿再试\n\n'
+        f'（技术细节：{" | ".join(errors)}）')
 
 
 # ---------------- K 线衍生指标 ----------------

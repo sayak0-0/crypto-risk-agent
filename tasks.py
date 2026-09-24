@@ -95,7 +95,8 @@ def start(name, fn, *args, **kwargs):
                         错误=f'结果序列化失败：{e}')
         except Exception as e:
             _update(task_id, 状态='失败',
-                    错误=f'{type(e).__name__}: {str(e)[:400]}',
+                    错误=str(e) if str(e) else f'{type(e).__name__}',
+                    错误类型=type(e).__name__,
                     堆栈=traceback.format_exc()[-800:])
 
     with _LOCK:

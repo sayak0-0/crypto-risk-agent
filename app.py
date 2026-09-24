@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 
 import agents_ui
+import chat_ui
 import context_ui
 import journal
 import llm
@@ -31,6 +32,21 @@ TRADES_PATH = journal.TRADES_CSV
 
 # ============ 侧边栏：风控设置 ============
 cfg = load_config()
+
+# ============ 界面模式：默认对话式，可切回经典多页签 ============
+if 'ui_mode' not in st.session_state:
+    st.session_state['ui_mode'] = 'chat'
+
+if st.session_state['ui_mode'] == 'chat':
+    chat_ui.render(cfg)
+    st.stop()
+
+# ================= 以下是经典多页签界面 =================
+
+if st.sidebar.button('← 回到对话界面', use_container_width=True,
+                     type='primary', key='back_to_chat'):
+    st.session_state['ui_mode'] = 'chat'
+    st.rerun()
 
 st.sidebar.title('⚙️ 我的风控设置')
 with st.sidebar.form('cfg'):

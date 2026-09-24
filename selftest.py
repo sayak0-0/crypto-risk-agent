@@ -9,9 +9,13 @@ import os
 import sys
 import traceback
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 import pandas as pd
 
 import agents
+import chat
 import exchange_sync
 import journal
 import llm
@@ -406,7 +410,9 @@ def t_snapshot_all_fail():
         try:
             market.snapshot('BTC')
         except RuntimeError as e:
-            assert '所有数据源都失败了' in str(e), str(e)
+            msg = str(e)
+            assert '连不上交易所' in msg, msg
+            assert 'HTTPS_PROXY' in msg, '应告诉用户怎么配代理'
         else:
             raise AssertionError('应该抛错')
     finally:
@@ -465,17 +471,34 @@ def _app(path):
     at.run()
     return at
 
+from streamlit.testing.v1 import AppTest
+
 APP = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.py')
 
 def t_app_render():
+    """默认应该是对话式界面（左边历史任务 + 右边问答窗）。"""
     at = _app(APP)
     assert not at.exception, f'界面渲染报错：{[e.value for e in at.exception]}'
-    assert len(at.tabs) == 9, f'应该是 9 个页签，实际 {len(at.tabs)}'
+    txt = ' '.join(str(m.value) for m in at.markdown)
+    # 对话式界面的特征：新对话按钮 / 快捷操作
+    assert '新对话' in txt or '想做什么' in txt, f'没看到对话式界面：{txt[:200]}'
+    assert '常用币种' in txt, '空状态应该给常用币种一键入口'
+    assert len(at.tabs) == 0, '对话式界面不该有页签'
+
+def t_app_classic_mode():
+    """切到经典模式后，原来的 9 个页签要能正常出来。"""
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.session_state['ui_mode'] = 'classic'
+    at.run()
+    assert not at.exception, f'经典界面报错：{[e.value for e in at.exception]}'
+    assert len(at.tabs) == 9, f'经典界面应该是 9 个页签，实际 {len(at.tabs)}'
     labels = [m.label for m in at.metric]
     assert '今天已交易' in labels and '当前连亏' in labels
 
 def t_app_precheck():
-    at = _app(APP)
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.session_state['ui_mode'] = 'classic'
+    at.run()
     for ni in at.number_input:
         if ni.label == '开仓价':
             ni.set_value(62000.0)
@@ -498,7 +521,9 @@ def t_app_precheck():
 
 def t_app_reject_no_stop():
     """不填止损就点检查，应该直接报错。"""
-    at = _app(APP)
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.session_state['ui_mode'] = 'classic'
+    at.run()
     for ni in at.number_input:
         if ni.label == '开仓价':
             ni.set_value(62000.0)
@@ -507,7 +532,8 @@ def t_app_reject_no_stop():
     assert not at.exception
     assert len(at.error) >= 1, '没填止损应该报错'
 
-for n, f in [('界面能正常渲染', t_app_render),
+for n, f in [('对话式界面能渲染', t_app_render),
+             ('切经典模式能看到 9 个页签', t_app_classic_mode),
              ('开仓前检查按钮可用', t_app_precheck),
              ('没填止损会报错', t_app_reject_no_stop)]:
     check(n, f)
@@ -2580,7 +2606,9 @@ def t_task_failure_captured():
         _t.sleep(0.1)
     st = tasks.status(tid)
     assert st.get('状态') == '失败', st
-    assert 'ValueError' in st.get('错误', ''), st
+    # 错误信息现在保留原文，类型单独放「错误类型」字段
+    assert '故意失败的测试' in st.get('错误', ''), st
+    assert st.get('错误类型') == 'ValueError', st
     assert tasks.load_result(tid) is None
 
 def t_task_survives_other_work():
@@ -2933,6 +2961,109 @@ for n, f in [('方向不明确时给双向方案（核心）', t_ambiguous_direc
              ('双向方案仍带 AI 判断信息', t_ambiguous_still_has_ai_info)]:
     check(n, f)
 
+
+# ---------------- 对话引擎 ----------------
+section('对话引擎')
+
+def t_chat_find_symbol():
+    """从一句话里认出币种。"""
+    cases = [
+        ('帮我分析一下 BTC', 'BTCUSDT'),
+        ('ETH 现价多少', 'ETHUSDT'),
+        ('比特币怎么样', 'BTCUSDT'),
+        ('看看 solana', 'SOLUSDT'),
+        ('zecusdt 有机会吗', 'ZECUSDT'),
+        ('你好', None),
+    ]
+    for text, want in cases:
+        got = chat.find_symbol(text)
+        assert got == want, f'{text!r} -> {got}，期望 {want}'
+
+def t_chat_classify():
+    """意图识别。"""
+    cases = [
+        ('帮我看看 BTC 有没有机会', 'plan'),
+        ('扫描一下有什么异动', 'scan'),
+        ('我的持仓怎么样', 'positions'),
+        ('帮我复盘一下', 'review'),
+        ('看看我的绩效', 'dashboard'),
+        ('BTC 现价多少', 'quote'),
+        ('特朗普讲话对币圈有什么影响', 'news'),
+    ]
+    for text, want in cases:
+        intent, sym = chat.classify(text)
+        assert intent == want, f'{text!r} -> {intent}，期望 {want}'
+
+def t_chat_plan_intent_has_symbol():
+    """说「分析 BTC」时要认出是 BTC。"""
+    intent, sym = chat.classify('帮我分析一下 ETH')
+    assert intent == 'plan' and sym == 'ETHUSDT', (intent, sym)
+
+def t_chat_fallback_no_prediction():
+    """兜底回答不能预测涨跌，必须说明自己不预测。"""
+    orig = chat.run_quote
+    chat.run_quote = lambda s: {'类型': '行情', '币种': 'BTCUSDT',
+                                '快照': {'标记价': 86000.0}, '指标': {}}
+    try:
+        r = chat.run_chat('你觉得会涨吗')
+    finally:
+        chat.run_quote = orig
+    txt = r['内容']
+    assert '不预测涨跌' in txt, txt
+    assert '抛硬币' in txt, '要说明为什么不做预测'
+    assert '会涨' not in txt.replace('不预测涨跌', ''), '不能给涨跌判断'
+
+def t_chat_news_no_prediction():
+    """新闻入口只输出波动风险，不把规则结果包装成涨跌预测。"""
+    orig_scan, orig_note = chat.news.scan, chat.news.risk_note
+    chat.news.scan = lambda limit=60: {
+        '抓取时间': '2026-09-24 12:00:00', '总条数': 1,
+        '高影响条数': 1, '按类别': {}, '高影响事件': [], '全部新闻': [],
+        '错误': [],
+    }
+    chat.news.risk_note = lambda result, has_position=False: {
+        '级别': '提示', '提示': '波动可能放大，不判断方向。'
+    }
+    try:
+        result = chat.run_news()
+    finally:
+        chat.news.scan, chat.news.risk_note = orig_scan, orig_note
+    assert result['类型'] == '新闻'
+    assert '不判断方向' in result['风险']['提示']
+
+
+def t_chat_quick_actions():
+    acts = chat.quick_actions()
+    assert len(acts) >= 5
+    for label, prompt in acts:
+        assert label and prompt
+
+for n, f in [('识别币种', t_chat_find_symbol),
+             ('意图分类', t_chat_classify),
+             ('方案意图带币种', t_chat_plan_intent_has_symbol),
+             ('兜底不预测涨跌', t_chat_fallback_no_prediction),
+             ('快捷操作列表', t_chat_quick_actions),
+             ('新闻风险不预测方向', t_chat_news_no_prediction)]:
+    check(n, f)
+
+
+# ---------------- 清理自测任务 ----------------
+# 自测会创建假任务。如果不清理，它们会混进用户左栏的历史任务里。
+_TEST_TASK_NAMES = {'测试任务', '自测任务', '进度任务', '失败任务', '长任务', '查找任务'}
+with tasks._LOCK:
+    _d = tasks._read_all()
+    _removed = {tid for tid, item in _d.items()
+                if item.get('任务名') in _TEST_TASK_NAMES}
+    for _tid in _removed:
+        _d.pop(_tid, None)
+    tasks._write_all(_d)
+for _tid in _removed:
+    _path = tasks.result_path(_tid)
+    try:
+        if os.path.exists(_path):
+            os.remove(_path)
+    except OSError:
+        pass
 
 # ---------------- 收尾 ----------------
 if os.path.exists(TMP):

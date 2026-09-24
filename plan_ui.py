@@ -229,7 +229,17 @@ def render_progress(tid, key='pl_poll'):
             st_autorefresh(interval=5000, key=key)
         return None, None
     if state == '失败':
-        st.error(f"❌ 后台任务失败：{stt.get('错误')}")
+        err = str(stt.get('错误') or '')
+        st.error('**这个任务失败了**')
+        # 分情况给能照着做的建议
+        if '连不上交易所' in err or 'ConnectionError' in err or 'SSL' in err:
+            st.warning('👉 **是网络问题，不是工具坏了。** 上面写了解决办法。')
+        elif '余额不足' in err or '402' in err:
+            st.warning('👉 **是模型账号余额不足**，去硅基流动充值即可。'
+                       '（不充值也能用：开仓前检查、交易日志、绩效看板、市场监控都不需要模型）')
+        elif '超时' in err:
+            st.warning('👉 **模型响应太慢超时了**，可以换个更快的模型，或稍后重试。')
+        st.markdown(err)
         if stt.get('堆栈'):
             with st.expander('技术细节'):
                 st.code(stt['堆栈'])
