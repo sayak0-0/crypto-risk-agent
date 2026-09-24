@@ -18,7 +18,7 @@ import re
 import market
 import risk
 from common import get_env
-from llm import chat, model_name
+from llm import analyst_models, chat, model_name
 
 
 # ---------------- 结构位计算（纯代码） ----------------
@@ -308,14 +308,22 @@ def ask_planner(symbol, price, analysis, stops, ratios, model=None, api_key=None
                            '距离百分比': s['距离百分比'], '说明': s['说明']}
                           for s in stops], ensure_ascii=False, indent=1),
         ratios=', '.join(str(r) for r in ratios)) + extra
-    # 用硬超时包住 —— 光靠 requests 的 timeout 治不了流式卡死
-    out = call_with_hard_timeout(
-        chat, 240, PLANNER_SYSTEM, prompt,
-        model=model or model_name('planner'),
-        api_key_override=api_key,
-        timeout=180, temperature=0.2, max_tokens=1000)
+    # 两级超时：先主方案官，超时后换更快模型，最后才走程序兜底。
+    def run_once(use_model, hard_sec, inner_sec, max_tokens):
+        try:
+            return call_with_hard_timeout(
+                chat, hard_sec, PLANNER_SYSTEM, prompt,
+                model=use_model, api_key_override=api_key,
+                timeout=inner_sec, temperature=0.2, max_tokens=max_tokens)
+        except Exception:
+            return None
+
+    out = run_once(model or model_name('planner'), 240, 180, 1000)
     if out is None:
-        return None, {}, '（方案官超时，已放弃，走程序默认止损位）'
+        faster = analyst_models()[0] if analyst_models() else model_name('analyst')
+        out = run_once(faster, 150, 120, 700)
+    if out is None:
+        return None, {}, '（方案官两次超时，已使用程序默认止损位）'
     text, usage, used = out
     return _extract_json(text), usage, used
 
