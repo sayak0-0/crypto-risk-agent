@@ -25,7 +25,7 @@ DIRECTION_OPTIONS = ['由 AI 判断（推荐）', '只看多', '只看空']
 # ---------------- 后台执行（不能碰 st.*） ----------------
 
 def _run_plan(symbol, exchange, equity, risk_pct, leverage, use_debate,
-              force_dir, cfg, progress):
+              force_dir, cfg, progress, news_context=None):
     """在后台线程里跑完整流程。
 
     ⚠️ 这个函数**绝对不能调用任何 st 的方法** —— 它跑在独立线程里，
@@ -33,7 +33,8 @@ def _run_plan(symbol, exchange, equity, risk_pct, leverage, use_debate,
     """
     progress('正在拉取行情数据……')
     analysis = agents.analyze_symbol(symbol, exchange, on_progress=progress,
-                                     enable_debate=use_debate)
+                                     enable_debate=use_debate,
+                                     extra_context=news_context)
     if force_dir:
         a = dict(analysis)
         a['主持人'] = dict(a.get('主持人') or {}, 方向=force_dir)
@@ -202,7 +203,7 @@ def render_result(result, analysis=None):
 
 
 def start_task(symbol, cfg, equity=None, risk_pct=None, leverage=None,
-               use_debate=True, force_dir=None, exchange='自动'):
+               use_debate=True, force_dir=None, exchange='自动', news_context=None):
     """从任何页签启动一次方案生成（后台跑）。返回任务 ID。"""
     tid = tasks.start('交易方案', _run_plan,
                       symbol, exchange,
@@ -210,7 +211,8 @@ def start_task(symbol, cfg, equity=None, risk_pct=None, leverage=None,
                       float(risk_pct if risk_pct is not None
                             else cfg.get('单笔风险百分比', 1.0)),
                       float(leverage if leverage is not None else cfg.get('杠杆', 10.0)),
-                      bool(use_debate), force_dir, dict(cfg))
+                      bool(use_debate), force_dir, dict(cfg),
+                      news_context=news_context)
     return tid
 
 

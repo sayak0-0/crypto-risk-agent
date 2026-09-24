@@ -222,8 +222,18 @@ def run_plan(symbol, cfg=None, use_debate=True, force_dir=None):
             cfg['本金'] = live
     except Exception:
         pass
+    news_context = ''
+    try:
+        import rag
+        if rag.is_ready():
+            found = rag.search(symbol or 'BTCUSDT', top_k=6,
+                               symbols=[symbol] if symbol else None)
+            news_context = rag.format_context(found)
+    except Exception:
+        pass
     return plan_ui.start_task(symbol or 'BTCUSDT', cfg, equity=equity,
-                              use_debate=use_debate, force_dir=force_dir)
+                              use_debate=use_debate, force_dir=force_dir,
+                              news_context=news_context)
 
 
 def run_chat(text, symbol=None, allow_llm=False, extra_context=None):

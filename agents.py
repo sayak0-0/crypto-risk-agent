@@ -83,6 +83,11 @@ ANALYSTS = [
             '资金费率（每8小时，单位%）': _t((s.get('资金费率') or 0) * 100, 4,
                                         '%（正数=多头付钱给空头；常规基准约0.01%）'),
             '持仓量（币）': _t(s.get('持仓量'), 0, ' 币'),
+            '持仓量1小时变化': _t((s.get('衍生品趋势') or {}).get('持仓量_1小时变化'), 2, '%'),
+            '持仓量4小时变化': _t((s.get('衍生品趋势') or {}).get('持仓量_4小时变化'), 2, '%'),
+            '资金费率近3期均值': _t((s.get('衍生品趋势') or {}).get('资金费率_最近3期均值'), 4, '%'),
+            '资金费率趋势变化': _t((s.get('衍生品趋势') or {}).get('资金费率_趋势变化'), 4, '%'),
+            '标记价相对现货指数基差': _t((s.get('衍生品趋势') or {}).get('基差百分比'), 4, '%'),
             '24小时成交额': _t(s.get('24h成交额'), 0, ' USDT'),
         },
     },
@@ -98,6 +103,9 @@ ANALYSTS = [
             '24小时最高': _t(s.get('24h最高'), 4, ' USDT'),
             '24小时最低': _t(s.get('24h最低'), 4, ' USDT'),
             '当前价在24小时区间的相对位置': _range_pos(s),
+            '多空比4小时变化': _t((s.get('衍生品趋势') or {}).get('多空比_4小时变化'), 3),
+            '主动买卖比（>1=主动买更强）': _t((s.get('衍生品趋势') or {}).get('主动买卖比_当前'), 3),
+            '主动买卖比4小时变化': _t((s.get('衍生品趋势') or {}).get('主动买卖比_4小时变化'), 3),
         },
     },
     {
@@ -115,6 +123,18 @@ ANALYSTS = [
         },
     },
 ]
+
+
+NEWS_ANALYST = {
+    '名称': '事件/新闻分析师',
+    'system': ('你是加密货币事件与新闻分析师。你只能使用提供的公开新闻证据，'
+               '必须区分事实、媒体观点和推断。禁止编造新闻。'),
+    'brief': lambda s, i: {
+        '币种': market.normalize_symbol(s.get('币种') or ''),
+        '公开新闻证据': s.get('_新闻证据') or '本次没有检索到相关公开新闻',
+        '要求': '判断新闻对波动和风险的影响，不预测具体价格。',
+    },
+}
 
 
 def _range_pos(snap):
@@ -364,7 +384,8 @@ def call_llm(system, user, model=None, api_key=None, timeout=150,
 
 
 def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
-                   on_progress=None, prompt_mode='auto', enable_debate=False):
+                   on_progress=None, prompt_mode='auto', enable_debate=False,
+                   extra_context=None):
     """跑一次完整的多智能体分析。
 
     on_progress(消息文本) 会在每个阶段被调用，方便界面显示进度。
@@ -389,6 +410,10 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
     ind = market.compute_indicators(snap.get('K线'), snap.get('标记价'))
     if not ind:
         raise RuntimeError('K线数据不足，算不出技术指标。')
+    prog('正在读取衍生品时间序列和公开新闻证据……')
+    snap['衍生品趋势'] = market.derivatives_trend(symbol)
+    snap['_新闻证据'] = extra_context or ''
+    active_analysts = list(ANALYSTS) + ([NEWS_ANALYST] if extra_context else [])
 
     def run_one(pair):
         idx, a = pair
@@ -452,11 +477,11 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         if raw:
             parsed['_原始输出'] = raw
         return parsed, usage_total
-    prog('四位分析师正在并行分析……'
+    prog(f'{len(active_analysts)} 位分析师正在并行分析……'
          + ('（小模型友好模式）' if prompt_mode == 'compact' else ''))
     results, total_usage = [], {}
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        for parsed, usage in pool.map(run_one, list(enumerate(ANALYSTS))):
+    with ThreadPoolExecutor(max_workers=len(active_analysts)) as pool:
+        for parsed, usage in pool.map(run_one, list(enumerate(active_analysts))):
             results.append(parsed)
             for k, v in (usage or {}).items():
                 if isinstance(v, (int, float)):
@@ -476,6 +501,11 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         '资金费率（每8小时，单位%）': _t((snap.get('资金费率') or 0) * 100, 4,
                                     '%（正=多头付钱；常规基准约0.01%）'),
         '账户多空比（>1=多头账户更多）': _t(snap.get('多空比'), 3),
+        '持仓量1小时变化': _t((snap.get('衍生品趋势') or {}).get('持仓量_1小时变化'), 2, '%'),
+        '持仓量4小时变化': _t((snap.get('衍生品趋势') or {}).get('持仓量_4小时变化'), 2, '%'),
+        '基差百分比': _t((snap.get('衍生品趋势') or {}).get('基差百分比'), 4, '%'),
+        '主动买卖比': _t((snap.get('衍生品趋势') or {}).get('主动买卖比_当前'), 3),
+        '公开新闻证据': (extra_context or '无')[:3000],
     }), ensure_ascii=False, indent=1)
 
     debate_result = None
@@ -585,6 +615,8 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         '指标': _clean(ind),
         '分析师': _clean(results),
         '主持人': _clean(chair),
+        '衍生品趋势': _clean(snap.get('衍生品趋势') or {}),
+        '新闻证据': extra_context or '',
         '用量': total_usage,
         '模型': used_model,
     }

@@ -1101,6 +1101,13 @@ IND_MA = {'MA20': 85000.0, 'MA60': 83000.0, '距MA20百分比': 1.18,
           '距MA60百分比': 3.61, 'ATR14百分比': 2.4, '近期高点': 89000.0,
           '近期低点': 84000.0, '距近期高点百分比': -3.37,
           '距近期低点百分比': 2.38, '近24小时涨跌幅': -3.0}
+DERIV_TREND = {'持仓量_1小时变化': 1.2, '持仓量_4小时变化': 2.5,
+              '资金费率_最近3期均值': 0.012, '资金费率_趋势变化': 0.003,
+              '基差百分比': 0.15, '多空比_4小时变化': 0.1,
+              '主动买卖比_当前': 1.08, '主动买卖比_4小时变化': 0.05}
+SNAP_MA['衍生品趋势'] = DERIV_TREND
+# 多智能体测试不能真的请求币安时间序列接口；保持确定性。
+market.derivatives_trend = lambda symbol: dict(DERIV_TREND)
 
 def _brief_of(name):
     for a in agents.ANALYSTS:
@@ -1157,7 +1164,7 @@ def t_judge():
     assert agents._judge('无法判断', 5.0) is None
 
 def t_analyze_end_to_end():
-    """打桩跑一遍完整流程：应调用 5 次模型（4 分析师 + 1 主持人）。"""
+    """打桩跑完整流程：有新闻证据时应调用 6 次（5 分析师 + 1 主持人）。"""
     import market as mk
     saved = (mk.snapshot, mk.compute_indicators, agents.call_llm, agents.market.snapshot,
              agents.market.compute_indicators)
@@ -1173,7 +1180,8 @@ def t_analyze_end_to_end():
                                '什么情况下我错了': '价格站上89000',
                                '给交易者的提醒': '轻仓'}, ensure_ascii=False), {'total_tokens': 500}, 'm'
         for key, val in [('技术面', '偏多'), ('资金面', '偏空'),
-                         ('情绪面', '偏空'), ('风控官', '中性')]:
+                         ('情绪面', '偏空'), ('风控官', '中性'),
+                         ('事件与新闻', '中性')]:
             if key in system:
                 return json.dumps({'方向': val, '信心': 65, '核心理由': '理由',
                                    '主要风险': '风险', '什么情况下我错了': '条件',
@@ -1185,21 +1193,21 @@ def t_analyze_end_to_end():
     agents.market.snapshot = lambda s, e: dict(SNAP_MA)
     agents.market.compute_indicators = lambda k, p: dict(IND_MA)
     try:
-        r = agents.analyze_symbol('BTC')
+        r = agents.analyze_symbol('BTC', extra_context='[1] ETF 资金流入新闻')
     finally:
         mk.snapshot, mk.compute_indicators = saved[0], saved[1]
         agents.call_llm = saved[2]
         agents.market.snapshot = saved[3]
         agents.market.compute_indicators = saved[4]
 
-    assert len(calls) == 5, f'应该有 5 次模型调用（4+1），实际 {len(calls)}'
-    assert len(r['分析师']) == 4
+    assert len(calls) == 6, f'应该有 6 次模型调用（5+1），实际 {len(calls)}'
+    assert len(r['分析师']) == 5
     names = [a['_名称'] for a in r['分析师']]
-    assert set(names) == {'技术面分析师', '资金面分析师', '情绪面分析师', '风控官'}, names
+    assert set(names) == {'技术面分析师', '资金面分析师', '情绪面分析师', '风控官', '事件/新闻分析师'}, names
     assert r['主持人']['方向'] == '偏空'
     assert r['币种'] == 'BTCUSDT'
     approx(r['当时价格'], 86000.0)
-    assert r['用量']['total_tokens'] == 300 * 4 + 500, r['用量']
+    assert r['用量']['total_tokens'] == 300 * 5 + 500, r['用量']
     # 每个分析师都带了数据快照和自己的结论
     for a in r['分析师']:
         assert a['_数据'] and a['方向'] in agents.DIRECTIONS

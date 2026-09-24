@@ -183,6 +183,66 @@ def fetch_bybit(symbol):
 FETCHERS = {'binance': fetch_binance, 'okx': fetch_okx, 'bybit': fetch_bybit}
 
 
+def derivatives_trend(symbol):
+    """币安衍生品时间序列：资金费率、持仓量、多空比、主动买卖、基差。"""
+    sym = normalize_symbol(symbol)
+    out = {'币种': sym, '更新时间': time.strftime('%Y-%m-%d %H:%M:%S'),
+           '警告': []}
+
+    def get(url, params):
+        try:
+            return _get(url, params)
+        except Exception as e:
+            out['警告'].append(f'{type(e).__name__}')
+            return None
+
+    funding = get('https://fapi.binance.com/fapi/v1/fundingRate',
+                  {'symbol': sym, 'limit': 24})
+    if funding:
+        rates = [float(x.get('fundingRate') or 0) * 100 for x in funding]
+        out['资金费率_最近24期'] = rates[-24:]
+        if len(rates) >= 6:
+            out['资金费率_最近3期均值'] = sum(rates[-3:]) / 3
+            out['资金费率_前3期均值'] = sum(rates[-6:-3]) / 3
+            out['资金费率_趋势变化'] = (sum(rates[-3:]) / 3
+                                      - sum(rates[-6:-3]) / 3)
+
+    oi = get('https://fapi.binance.com/futures/data/openInterestHist',
+             {'symbol': sym, 'period': '1h', 'limit': 24})
+    if oi:
+        vals = [float(x.get('sumOpenInterest') or 0) for x in oi]
+        out['持仓量_当前'] = vals[-1]
+        for label, n in (('1小时变化', 1), ('4小时变化', 4), ('24小时变化', 24)):
+            if len(vals) > n and vals[-n-1]:
+                out['持仓量_' + label] = (vals[-1] / vals[-n-1] - 1) * 100
+
+    ls = get('https://fapi.binance.com/futures/data/globalLongShortAccountRatio',
+             {'symbol': sym, 'period': '1h', 'limit': 24})
+    if ls:
+        vals = [float(x.get('longShortRatio') or 0) for x in ls]
+        out['多空比_当前'] = vals[-1]
+        if len(vals) >= 4:
+            out['多空比_4小时变化'] = vals[-1] - vals[-4]
+
+    taker = get('https://fapi.binance.com/futures/data/takerlongshortRatio',
+                {'symbol': sym, 'period': '1h', 'limit': 24})
+    if taker:
+        vals = [float(x.get('buySellRatio') or 0) for x in taker]
+        out['主动买卖比_当前'] = vals[-1]
+        if len(vals) >= 4:
+            out['主动买卖比_4小时变化'] = vals[-1] - vals[-4]
+
+    prem = get('https://fapi.binance.com/fapi/v1/premiumIndex', {'symbol': sym})
+    if prem:
+        mark, index = float(prem.get('markPrice') or 0), float(prem.get('indexPrice') or 0)
+        if index:
+            out['标记价'] = mark
+            out['现货指数价'] = index
+            out['基差百分比'] = (mark / index - 1) * 100
+            out['资金费率_当前'] = float(prem.get('lastFundingRate') or 0) * 100
+    return out
+
+
 def snapshot(symbol, exchange='自动'):
     """拉一份行情快照。自动模式会依次尝试三个交易所。"""
     order = ['binance', 'okx', 'bybit']
