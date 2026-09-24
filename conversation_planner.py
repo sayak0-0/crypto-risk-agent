@@ -5,7 +5,7 @@ import re
 
 import llm
 
-MODEL = 'Qwen/Qwen3.5-35B-A3B'
+MODEL = 'Qwen/Qwen2.5-7B-Instruct'
 ACTIONS = {
     'plan', 'recommend_plan', 'scan', 'quote', 'positions',
     'account', 'orders', 'news', 'review', 'dashboard',

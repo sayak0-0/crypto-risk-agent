@@ -157,7 +157,7 @@ def _self_info_md():
         '### 当前配置',
         '',
         f'- 普通问答/解释：**{qa_model}**',
-        '- 对话规划器：**Qwen/Qwen3.5-35B-A3B**',
+        '- 对话规划器：**Qwen/Qwen2.5-7B-Instruct**',
         f'- 默认模型：**{default_model}**',
         f'- 方案主持人：**{chair_model}**',
         f'- 方案官：**{planner_model}**',
