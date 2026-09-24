@@ -329,6 +329,28 @@ def _sidebar(cfg):
                 '它只做三件事：**把数字算准、把风险摆明、把纪律拦住。**'
             )
 
+        st.divider()
+        with st.sidebar.container(key='side_actions'):
+            st.caption('快捷操作')
+            acts = chat.quick_actions()
+            act_cols = st.columns(3)
+            for i, (label, prompt) in enumerate(acts):
+                if act_cols[i % 3].button(label, use_container_width=True, key=f'side_qa_{i}'):
+                    st.session_state['_pending_prompt'] = prompt
+                    st.rerun()
+
+            st.caption('常用币种')
+            symbols = [
+                ('BTC', 'BTCUSDT'), ('ETH', 'ETHUSDT'), ('SOL', 'SOLUSDT'),
+                ('BNB', 'BNBUSDT'), ('XRP', 'XRPUSDT'), ('DOGE', 'DOGEUSDT'),
+            ]
+            sym_cols = st.columns(3)
+            for i, (label, symbol) in enumerate(symbols):
+                if sym_cols[i % 3].button(label, use_container_width=True,
+                                          key=f'side_sym_{symbol}'):
+                    st.session_state['_pending_prompt'] = f'帮我分析一下 {symbol}'
+                    st.rerun()
+
 
 def _cfg_form(cfg):
     from common import save_config
@@ -435,6 +457,26 @@ def _inject_style():
       [data-testid="stMetricValue"] {font-size: 1.35rem !important; font-weight: 650 !important; color: #111827 !important;}
       [data-testid="stMetricLabel"] {color: var(--muted) !important;}
       [data-testid="stDataFrame"] {border: 1px solid #ececec !important; border-radius: 8px !important; overflow: hidden;}
+      .empty-chat {padding-top: 18vh; text-align: center;}
+      .empty-chat h2 {font-weight: 600; margin-bottom: .35rem; color: #111827;}
+      .empty-chat p {color: #8e8ea0; font-size: .95rem;}
+      .st-key-side_actions {
+        position: sticky; bottom: 0; z-index: 20;
+        background: #f7f7f5; padding-top: .45rem;
+        box-shadow: 0 -12px 20px #f7f7f5;
+        max-height: 38vh; overflow-y: auto;
+      }
+      [data-testid="stSidebar"] .st-key-side_actions .stButton button {
+        min-height: 28px !important; height: 28px !important;
+        padding: .1rem .25rem !important; font-size: .8rem !important;
+        line-height: 1.1 !important;
+      }
+      [data-testid="stExpander"] details {
+        border: none !important; background: transparent !important;
+      }
+      [data-testid="stExpander"] summary {
+        padding: .22rem 0 !important; color: #6b7280 !important;
+      }
     </style>
     """, unsafe_allow_html=True)
 
@@ -442,8 +484,6 @@ def _inject_style():
 def render(cfg):
     _inject_style()
     _sidebar(cfg)
-
-    st.caption('直接说你想做什么，例如「看看 BTC」「扫描市场异动」「今天有什么新闻风险」')
 
     # 历史任务详情
     view = st.session_state.get('view_task')
@@ -483,31 +523,17 @@ def render(cfg):
                 st.success(f'{sym} 的方案已生成')
                 plan_ui.render_result(res, ana)
 
-    # 空状态：快捷按钮
+    # 空状态：右侧保持干净，所有操作都在左下角
     if not msgs and not tid:
-        st.markdown('### 开始')
-        acts = chat.quick_actions()
-        cols = st.columns(4)
-        for i, (label, prompt) in enumerate(acts):
-            if cols[i % 4].button(label, use_container_width=True, key=f'qa_{i}'):
-                st.session_state['_pending_prompt'] = prompt
-                st.rerun()
-
-        st.caption('常用币种 · 点一下直接分析')
-        symbols = [
-            ('BTC 比特币', 'BTCUSDT'), ('ETH 以太坊', 'ETHUSDT'),
-            ('SOL', 'SOLUSDT'), ('BNB', 'BNBUSDT'),
-            ('XRP', 'XRPUSDT'), ('DOGE', 'DOGEUSDT'),
-        ]
-        sym_cols = st.columns(6)
-        for i, (label, symbol) in enumerate(symbols):
-            if sym_cols[i].button(label, use_container_width=True, key=f'sym_{symbol}'):
-                st.session_state['_pending_prompt'] = f'帮我分析一下 {symbol}'
-                st.rerun()
+        st.markdown(
+            '<div class="empty-chat"><h2>有什么可以帮你？</h2>'
+            '<p>分析币种、查看持仓、扫描市场或检查新闻风险</p></div>',
+            unsafe_allow_html=True,
+        )
 
     # 输入框
     pending = st.session_state.pop('_pending_prompt', None)
-    text = st.chat_input('说点什么…（例：帮我分析一下 BTC / 扫描有什么异动 / 我的持仓怎么样）')
+    text = st.chat_input('发消息…')
     if not text and pending:
         text = pending
     if text:
