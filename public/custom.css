@@ -1,0 +1,34 @@
+/* Chainlit 原型：白底、细边框、低对比度。 */
+html, body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
+a { text-decoration: none; }
+
+#crypto-quick-actions {
+  position: fixed !important;
+  left: 12px;
+  bottom: 12px;
+  width: 252px;
+  z-index: 60;
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 2px;
+}
+#crypto-quick-actions button {
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 7px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #6b7280 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+}
+#crypto-quick-actions button:hover {
+  background: #f1f2f4 !important;
+  color: #111827 !important;
+}
+@media (max-width: 768px) {
+  #crypto-quick-actions {width: calc(100% - 24px); bottom: 76px;}
+}

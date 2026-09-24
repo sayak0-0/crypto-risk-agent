@@ -30,3 +30,8 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+
+# Chainlit 运行期文件
+.files/
+.chainlit/.langchain.db
+.chainlit/translations/
