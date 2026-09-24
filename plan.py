@@ -395,6 +395,11 @@ def directional_lean(analysis):
     return lean, strength, round(score, 1)
 
 
+def resolve_lean(analysis):
+    lean, strength, _ = directional_lean(analysis)
+    return lean or '无明显倾向', strength or '无'
+
+
 def build_plan(symbol, analysis, equity, risk_pct, leverage,
                fee_rate=0.0005, mmr=0.005, min_rr=1.5, model=None, api_key=None,
                user_forced=False):
@@ -430,8 +435,8 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
             'AI判断': {
                 '方向': direction_cn,
                 '信心': chair.get('信心'),
-                '倾向': chair.get('倾向') or directional_lean(analysis)[0],
-                '倾向强度': chair.get('倾向强度') or directional_lean(analysis)[1],
+                '倾向': resolve_lean(analysis)[0],
+                '倾向强度': resolve_lean(analysis)[1],
                 '说明': (f'四个分析师没能得出一致方向（最终判断「{direction_cn}」，'
                          f'信心 {chair.get("信心")}）。所以下面把**两个方向**的参数都算给你 ——'
                          '**该不该做、做哪个方向，由你决定。**'),
@@ -526,8 +531,8 @@ def build_plan(symbol, analysis, equity, risk_pct, leverage,
         '分批建仓': batches,
         '方向': '做多' if direction == 'long' else '做空',
         '杠杆': leverage,
-        '倾向': chair.get('倾向') or directional_lean(analysis)[0],
-        '倾向强度': chair.get('倾向强度') or directional_lean(analysis)[1],
+        '倾向': resolve_lean(analysis)[0],
+        '倾向强度': resolve_lean(analysis)[1],
         '方向依据': chair,
         '分析师观点': analysis.get('分析师'),
         '入场价': price,
