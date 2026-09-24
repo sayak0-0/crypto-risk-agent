@@ -3097,13 +3097,15 @@ def t_chat_pick_plan():
     assert chat.classify('推荐一个币并生成方案')[0] == 'pick_plan'
     old_pick, old_plan = chat.run_pick, chat.run_plan
     chat.run_pick = lambda limit=8: {'候选': [
-        {'币种': 'NEARUSDT', '筛选理由': '流动性好'}]}
+        {'币种': 'SOLUSDT', '筛选理由': '成交额靠前'},
+        {'币种': 'BNBUSDT', '筛选理由': '流动性好'},
+        {'币种': 'NEARUSDT', '筛选理由': '波动较大'}]}
     chat.run_plan = lambda symbol, cfg=None: 'TASK-' + symbol
     try:
-        res = chat.run_pick_plan({})
+        res = chat.run_pick_plan({}, exclude_symbols=['SOLUSDT'])
     finally:
         chat.run_pick, chat.run_plan = old_pick, old_plan
-    assert res['币种'] == 'NEARUSDT' and res['task_id'] == 'TASK-NEARUSDT'
+    assert res['币种'] == 'BNBUSDT' and res['task_id'] == 'TASK-BNBUSDT'
 
 
 def t_chat_fallback_no_prediction():

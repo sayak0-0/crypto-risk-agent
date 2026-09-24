@@ -143,6 +143,10 @@ positions、account、orders、news、review、dashboard、chat、clarify、canc
         sym = _valid_symbol(obj.get('symbol'))
         excludes = [_valid_symbol(x) for x in (obj.get('exclude_symbols') or [])]
         excludes = [x for x in excludes if x]
+        if sym and sym in excludes:
+            sym = None
+            if action == 'plan':
+                action = 'recommend_plan'
         constraint_text = json.dumps(obj.get('constraints') or {}, ensure_ascii=False)
         prefer_stable = bool(re.search(r'稳|低波动|小波动|保守|风险小', constraint_text + text)) and not bool(re.search(r'不要太稳|别太稳|波动大|激进', constraint_text + text))
         prefer_active = bool(re.search(r'不要太稳|别太稳|波动大|激进', constraint_text + text))

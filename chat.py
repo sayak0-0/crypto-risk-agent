@@ -213,12 +213,13 @@ def run_dashboard():
             '按情绪': metrics.by_group(d, '情绪')}
 
 
-def run_pick_plan(cfg=None, limit=8):
+def run_pick_plan(cfg=None, limit=8, exclude_symbols=None):
     """先筛选候选，再为排名第一的币生成方案。"""
     picked = run_pick(limit=limit)
     if picked.get('错误'):
         return {'类型': '方案任务', '错误': picked['错误']}
-    rows = picked.get('候选') or []
+    excluded = {str(x).upper() for x in (exclude_symbols or []) if x}
+    rows = [x for x in (picked.get('候选') or []) if x.get('币种') not in excluded]
     if not rows:
         return {'类型': '方案任务', '错误': '当前没有筛出可生成方案的币种。'}
     # 未指定 BTC/ETH 时，推荐默认优先其他候选，避免总是退回 BTC。

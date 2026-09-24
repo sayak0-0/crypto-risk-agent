@@ -414,8 +414,10 @@ async def _handle_prompt(text):
             return
         effective_text = decision.get('normalized_text') or raw_text
         resolved_symbol = decision.get('symbol')
+        cl.user_session.set('last_excludes', decision.get('exclude_symbols') or [])
     else:
         effective_text, resolved_symbol = _resolve_reference(raw_text)
+        cl.user_session.set('last_excludes', [])
 
     _remember('user', raw_text)
     cfg = load_config()
@@ -442,7 +444,8 @@ async def _handle_prompt(text):
 
         if intent in ('plan', 'pick_plan'):
             if intent == 'pick_plan':
-                picked = await cl.make_async(chat.run_pick_plan)(cfg)
+                picked = await cl.make_async(chat.run_pick_plan)(
+                    cfg, exclude_symbols=cl.user_session.get('last_excludes') or [])
                 if picked.get('错误'):
                     status.content = '筛选失败：' + picked['错误']
                     await status.update()
