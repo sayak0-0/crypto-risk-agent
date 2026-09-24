@@ -5,7 +5,7 @@ import re
 
 import llm
 
-MODEL = 'Qwen/Qwen2.5-7B-Instruct'
+MODEL = 'Qwen/Qwen3.5-27B'
 ACTIONS = {
     'plan', 'recommend_plan', 'scan', 'quote', 'positions',
     'account', 'orders', 'news', 'review', 'dashboard',
@@ -68,11 +68,34 @@ def should_use(text, intent='chat', symbol=None):
         t))
 
 
+def _pick_by_constraint(details, excludes, prefer_stable):
+    rows = []
+    for d in details:
+        sym = _valid_symbol(d.get('币种'))
+        if not sym or sym in excludes:
+            continue
+        try:
+            change = abs(float(d.get('24h涨跌%') or 0))
+            funding = abs(float(d.get('资金费率%') or 0))
+            pos = abs(float(d.get('24h区间位置%') or 50) - 50)
+            rank = float(d.get('成交额排名') or 999)
+        except Exception:
+            change = funding = pos = 99.0; rank = 999.0
+        # 波动越小分数越低；流动性排名只做轻微修正。
+        score = change + funding * 80 + pos * 0.05 + rank * 0.005
+        rows.append((score, sym))
+    if not rows:
+        return None
+    rows.sort(reverse=not prefer_stable)
+    return rows[0][1]
+
+
 def plan(text, state=None):
     """返回结构化规划；失败时返回 None，调用方回退规则。"""
     state = state or {}
     history = state.get('history') or []
     candidates = state.get('last_candidates') or []
+    details = state.get('last_candidate_details') or []
     last_symbol = state.get('last_symbol') or ''
     system = (
         '你是加密货币交易助手的对话规划器。只理解用户意图和上下文，'
@@ -84,6 +107,7 @@ def plan(text, state=None):
 状态：
 - 上一轮币种：{last_symbol or '无'}
 - 上一轮候选：{json.dumps(candidates[:20], ensure_ascii=False)}
+- 候选指标：{json.dumps(details[:20], ensure_ascii=False)}
 
 当前用户输入：{text}
 
@@ -110,7 +134,8 @@ positions、account、orders、news、review、dashboard、chat、clarify、canc
     try:
         raw, _usage, _model = llm.chat(
             system, user, model=MODEL, timeout=35,
-            temperature=0.0, max_tokens=320)
+            temperature=0.0, max_tokens=320,
+            extra_body={'enable_thinking': False})
         obj = _json(raw) or {}
         action = str(obj.get('action') or 'chat').strip()
         if action not in ACTIONS:
@@ -118,6 +143,15 @@ positions、account、orders、news、review、dashboard、chat、clarify、canc
         sym = _valid_symbol(obj.get('symbol'))
         excludes = [_valid_symbol(x) for x in (obj.get('exclude_symbols') or [])]
         excludes = [x for x in excludes if x]
+        constraint_text = json.dumps(obj.get('constraints') or {}, ensure_ascii=False)
+        prefer_stable = bool(re.search(r'稳|低波动|小波动|保守|风险小', constraint_text + text)) and not bool(re.search(r'不要太稳|别太稳|波动大|激进', constraint_text + text))
+        prefer_active = bool(re.search(r'不要太稳|别太稳|波动大|激进', constraint_text + text))
+        if details and (prefer_stable or prefer_active):
+            picked = _pick_by_constraint(details, excludes, prefer_stable)
+            if picked:
+                sym = picked
+                obj['reason'] = (str(obj.get('reason') or '') +
+                                 f'；代码按候选波动指标选择 {picked}').strip('；')
         if action in ('recommend_plan', 'plan') and not sym:
             options = [x for x in candidates if x and x not in excludes
                        and x != last_symbol]

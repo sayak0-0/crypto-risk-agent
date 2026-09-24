@@ -149,7 +149,7 @@ def describe():
 
 
 def chat(system, user, model=None, api_key_override=None, timeout=150,
-         temperature=0.4, max_tokens=900):
+         temperature=0.4, max_tokens=900, extra_body=None):
     """调用模型。返回 (回复文本, 用量字典, 实际使用的模型名)。"""
     key = api_key_override or api_key()
     if not key:
@@ -166,6 +166,8 @@ def chat(system, user, model=None, api_key_override=None, timeout=150,
         'temperature': temperature,
         'max_tokens': max_tokens,
     }
+    if extra_body:
+        body.update(extra_body)
     try:
         r = requests.post(chat_url(), json=body, timeout=timeout,
                           headers={'Authorization': 'Bearer ' + key,

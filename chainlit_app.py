@@ -157,7 +157,7 @@ def _self_info_md():
         '### 当前配置',
         '',
         f'- 普通问答/解释：**{qa_model}**',
-        '- 对话规划器：**Qwen/Qwen2.5-7B-Instruct**',
+        '- 对话规划器：**Qwen/Qwen3.5-27B**',
         f'- 默认模型：**{default_model}**',
         f'- 方案主持人：**{chair_model}**',
         f'- 方案官：**{planner_model}**',
@@ -394,6 +394,7 @@ async def _handle_prompt(text):
             'history': cl.user_session.get('history') or [],
             'last_symbol': cl.user_session.get('last_symbol') or '',
             'last_candidates': cl.user_session.get('last_candidates') or [],
+            'last_candidate_details': cl.user_session.get('last_candidate_details') or [],
         }
         decision = await cl.make_async(conversation_planner.plan)(raw_text, state)
 
@@ -452,6 +453,7 @@ async def _handle_prompt(text):
                 cands = picked.get('候选') or []
                 cl.user_session.set('last_candidates',
                                     [x.get('币种') for x in cands if x.get('币种')])
+                cl.user_session.set('last_candidate_details', cands)
                 status.content = (
                     f'筛选后推荐 **{sym}**，正在生成方案…\n\n'
                     f'推荐依据：{reason}'
@@ -510,8 +512,10 @@ async def _handle_prompt(text):
         if stale():
             return
         if intent == 'pick':
+            picks = result.get('候选') or []
             cl.user_session.set('last_candidates', [
-                x.get('币种') for x in (result.get('候选') or []) if x.get('币种')])
+                x.get('币种') for x in picks if x.get('币种')])
+            cl.user_session.set('last_candidate_details', picks)
         elif intent == 'scan':
             cand = []
             for v in (result.get('分类') or {}).values():
