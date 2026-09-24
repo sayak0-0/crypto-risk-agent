@@ -45,20 +45,20 @@ def _short_summary(tid, s):
     """给历史列表用的一行摘要。"""
     state = s.get('状态')
     if state == '失败':
-        return '❌ 失败'
+        return '失败'
     if state in ('排队中', '运行中'):
-        return '⏳ 进行中'
+        return '进行中'
     r = _tasks.load_result(tid)
     if not r:
         return '（无结果）'
     p = r.get('方案')
     if p:
         if p.get('双向'):
-            return f"✅ {p.get('标的') or ''} 双向方案"
+            return f"{p.get('标的') or ''} 双向方案"
         if p.get('可执行'):
-            return f"✅ {p.get('标的') or ''} {p.get('方向') or ''}"
-        return '⚠️ 未出方案'
-    return '✅ 完成'
+            return f"{p.get('标的') or ''} {p.get('方向') or ''}"
+        return '未出方案'
+    return '完成'
 
 
 def _hist_label(tid, s):
@@ -128,12 +128,12 @@ def _render_positions(res):
                         delta_color='normal')
             if p.get('距爆仓百分比') is not None:
                 c[3].metric('距爆仓', f"{p['距爆仓百分比']:.2f}%",
-                            '⚠️ 很近' if p['距爆仓百分比'] < 10 else '安全',
+                            '距离很近' if p['距爆仓百分比'] < 10 else '安全',
                             delta_color='off')
             if p.get('距止损百分比') is not None:
                 c[4].metric('距止损', f"{p['距止损百分比']:.2f}%")
             if p.get('距爆仓百分比') is not None and p['距爆仓百分比'] < 10:
-                st.error(f"🚨 {p['币种']} 距离估算爆仓只剩 {p['距爆仓百分比']:.2f}%，马上处理")
+                st.error(f"警告：{p['币种']} 距离估算爆仓只剩 {p['距爆仓百分比']:.2f}%，需要马上处理")
 
 
 def _render_scan(res):
@@ -159,7 +159,7 @@ def _render_scan(res):
             if '标记价' in show.columns:
                 show['标记价'] = show['标记价'].map(lambda x: f'{x:,.6f}' if pd.notna(x) else '—')
             st.dataframe(show, height=min(400, 80 + 33 * len(show)))
-    st.caption('⚠️ 这是**事实筛选**不是推荐买入 —— 费率极端/涨跌异动在样本外'
+    st.caption('注意：这是**事实筛选**，不是推荐买入。费率极端/涨跌异动在样本外'
                '不具备稳定预测力，只是帮你收敛注意力。')
 
 
@@ -274,7 +274,7 @@ def _render_result(intent, res):
 
 def _sidebar(cfg):
     with st.sidebar:
-        st.markdown('### 📉 合约交易助手')
+        st.markdown('### 合约交易助手')
 
         if st.button('＋  新对话', use_container_width=True, type='primary',
                      key='new_chat'):
@@ -288,7 +288,7 @@ def _sidebar(cfg):
         # 正在跑的任务（置顶）
         running = tasks.running_tasks()
         if running:
-            st.caption('⚡ 进行中')
+            st.caption('进行中')
             for tid, s in running.items():
                 st.markdown(f"**{_hist_label(tid, s)}**")
                 st.caption(f"　{s.get('进度', '')}")
@@ -309,11 +309,11 @@ def _sidebar(cfg):
 
         st.divider()
         st.caption('工具')
-        if st.button('📒 交易日志 / 绩效 / 监控', use_container_width=True,
+        if st.button('交易日志 / 绩效 / 监控', use_container_width=True,
                      key='to_classic'):
             st.session_state['ui_mode'] = 'classic'
             st.rerun()
-        if st.button('⚙️ 风控设置', use_container_width=True, key='to_cfg'):
+        if st.button('风控设置', use_container_width=True, key='to_cfg'):
             st.session_state['show_cfg'] = not st.session_state.get('show_cfg', False)
             st.rerun()
 
@@ -321,7 +321,7 @@ def _sidebar(cfg):
             _cfg_form(cfg)
 
         st.divider()
-        with st.expander('ℹ️ 这个工具不做什么'):
+        with st.expander('这个工具不做什么'):
             st.caption(
                 '**不预测涨跌。** 我用 42 个模型、600+ 次调用验证过：'
                 '方向判断准确率 54-61%，和抛硬币没有统计差异。\n\n'
@@ -350,12 +350,91 @@ def _cfg_form(cfg):
 def _inject_style():
     st.markdown("""
     <style>
-      .block-container {padding-top: 1.15rem; padding-bottom: 6rem; max-width: 1120px;}
-      [data-testid="stHeader"] {background: transparent;}
-      [data-testid="stToolbar"], .stDeployButton {display: none;}
-      [data-testid="stSidebar"] {border-right: 1px solid rgba(128,128,128,.18);}
-      [data-testid="stChatMessage"] {padding: .25rem .1rem;}
-      div[data-testid="stChatInput"] textarea {min-height: 52px;}
+      :root {
+        --ink: #202123;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --soft: #f7f7f8;
+        --hover: #f1f2f4;
+      }
+      html, body, .stApp, [class*="css"] {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                     "Microsoft YaHei", sans-serif;
+      }
+      .stApp { background: #ffffff; }
+      .block-container {padding-top: 1rem; padding-bottom: 7.5rem; max-width: 980px;}
+      [data-testid="stHeader"] {background: rgba(255,255,255,.92); backdrop-filter: blur(8px);}
+      [data-testid="stToolbar"], #MainMenu, footer, .stDeployButton {display: none !important;}
+      [data-testid="stDecoration"] {display: none !important;}
+
+      [data-testid="stSidebar"] {background: #f7f7f5 !important; border-right: none !important;}
+      [data-testid="stSidebar"] > div:first-child {padding-top: 1rem;}
+      [data-testid="stSidebar"] .stButton button {
+        justify-content: flex-start; text-align: left;
+        background: transparent !important; border: none !important;
+        box-shadow: none !important; color: var(--ink) !important;
+        border-radius: 8px !important; padding: .42rem .55rem !important;
+        font-weight: 500;
+      }
+      [data-testid="stSidebar"] .stButton button:hover {background: #ececf0 !important;}
+      [data-testid="stSidebar"] [data-testid="stBaseButton-primary"] {background: transparent !important;}
+      [data-testid="stSidebar"] hr {margin: .65rem 0; border-color: var(--line);}
+
+      [data-testid="stVerticalBlockBorderWrapper"] {
+        border: none !important; box-shadow: none !important;
+        background: transparent !important; border-radius: 0 !important;
+        padding: 0 !important;
+      }
+      [data-testid="stChatMessage"] {
+        background: transparent !important; border: none !important;
+        box-shadow: none !important; padding: .45rem 0 !important;
+      }
+      [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p {line-height: 1.7;}
+
+      [data-testid="stChatInput"] > div {
+        background: var(--soft) !important; border: 1px solid var(--line) !important;
+        border-radius: 16px !important; box-shadow: none !important;
+      }
+      [data-testid="stChatInput"] textarea {
+        background: transparent !important; color: var(--ink) !important;
+        min-height: 32px !important;
+      }
+      [data-testid="stChatInput"] button {
+        background: transparent !important; border: none !important;
+        color: var(--muted) !important;
+      }
+      [data-testid="stChatInput"] button:enabled {color: #111827 !important;}
+      [data-testid="stChatInput"] button:enabled:hover {background: #e5e7eb !important;}
+
+      [data-testid="stAlert"] {
+        background: #fafafa !important; border: 1px solid #ececec !important;
+        border-left: 3px solid #9ca3af !important; border-radius: 8px !important;
+        box-shadow: none !important;
+      }
+      [data-testid="stAlert"] * {color: #374151 !important;}
+      [data-testid="stAlert"] svg {color: #6b7280 !important;}
+
+      [data-testid="stBaseButton-secondary"] {
+        background: transparent !important; border: none !important;
+        box-shadow: none !important; color: #374151 !important;
+        justify-content: flex-start !important; text-align: left !important;
+        padding: .38rem .5rem !important; border-radius: 8px !important;
+        min-height: 34px !important;
+      }
+      [data-testid="stBaseButton-secondary"]:hover {
+        background: var(--hover) !important; color: #111827 !important;
+      }
+      [data-testid="stBaseButton-primary"] {
+        background: #111827 !important; color: #ffffff !important;
+        border: none !important; box-shadow: none !important;
+        border-radius: 10px !important;
+      }
+      [data-testid="stBaseButton-primary"]:hover {background: #2b2d31 !important;}
+
+      [data-testid="stMetric"] {background: transparent !important; padding: .2rem 0 !important;}
+      [data-testid="stMetricValue"] {font-size: 1.35rem !important; font-weight: 650 !important; color: #111827 !important;}
+      [data-testid="stMetricLabel"] {color: var(--muted) !important;}
+      [data-testid="stDataFrame"] {border: 1px solid #ececec !important; border-radius: 8px !important; overflow: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -364,7 +443,7 @@ def render(cfg):
     _inject_style()
     _sidebar(cfg)
 
-    st.caption('💬 直接说你想要什么 —— 比如「帮我看看 BTC 有没有机会」')
+    st.caption('直接说你想做什么，例如「看看 BTC」「扫描市场异动」「今天有什么新闻风险」')
 
     # 历史任务详情
     view = st.session_state.get('view_task')
@@ -401,12 +480,12 @@ def render(cfg):
             sym = st.session_state.get('chat_task_sym') or ''
             res, ana = plan_ui.render_progress(tid, key='chat_poll')
             if res:
-                st.success(f'✅ {sym} 的方案已生成')
+                st.success(f'{sym} 的方案已生成')
                 plan_ui.render_result(res, ana)
 
     # 空状态：快捷按钮
     if not msgs and not tid:
-        st.markdown('#### 想做什么？')
+        st.markdown('### 开始')
         acts = chat.quick_actions()
         cols = st.columns(4)
         for i, (label, prompt) in enumerate(acts):
@@ -414,7 +493,7 @@ def render(cfg):
                 st.session_state['_pending_prompt'] = prompt
                 st.rerun()
 
-        st.markdown('##### 常用币种 · 点一下直接分析')
+        st.caption('常用币种 · 点一下直接分析')
         symbols = [
             ('BTC 比特币', 'BTCUSDT'), ('ETH 以太坊', 'ETHUSDT'),
             ('SOL', 'SOLUSDT'), ('BNB', 'BNBUSDT'),
@@ -438,7 +517,7 @@ def render(cfg):
                 intent, res = chat.dispatch(text, cfg)
             except Exception as e:
                 intent, res = 'chat', {'类型': '对话',
-                                       '内容': f'⚠️ 出错了：`{type(e).__name__}: {e}`'}
+                                       '内容': f'出错了：`{type(e).__name__}: {e}`'}
         msgs.append({'role': 'assistant', 'content': res, 'intent': intent})
         st.session_state['chat'] = msgs
         st.rerun()

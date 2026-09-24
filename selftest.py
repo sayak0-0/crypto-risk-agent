@@ -479,10 +479,11 @@ def t_app_render():
     """默认应该是对话式界面（左边历史任务 + 右边问答窗）。"""
     at = _app(APP)
     assert not at.exception, f'界面渲染报错：{[e.value for e in at.exception]}'
-    txt = ' '.join(str(m.value) for m in at.markdown)
-    # 对话式界面的特征：新对话按钮 / 快捷操作
-    assert '新对话' in txt or '想做什么' in txt, f'没看到对话式界面：{txt[:200]}'
-    assert '常用币种' in txt, '空状态应该给常用币种一键入口'
+    labels = [b.label for b in at.button]
+    # 对话式界面的特征：新对话按钮 / 快捷操作 / 常用币种
+    assert any('新对话' in x for x in labels), f'没看到新对话按钮：{labels[:20]}'
+    assert any('生成方案' in x for x in labels), f'没看到快捷操作：{labels[:20]}'
+    assert any('BTC' in x for x in labels), f'没看到常用币种入口：{labels[:20]}'
     assert len(at.tabs) == 0, '对话式界面不该有页签'
 
 def t_app_classic_mode():

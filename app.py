@@ -25,7 +25,7 @@ import watchlist_ui
 from common import get_env, load_config, save_config, fmt_usdt
 import symbol_picker
 
-st.set_page_config(page_title='合约交易助手', page_icon='📉', layout='wide')
+st.set_page_config(page_title='合约交易助手', layout='wide')
 
 TRADES_PATH = journal.TRADES_CSV
 
@@ -48,7 +48,7 @@ if st.sidebar.button('← 回到对话界面', use_container_width=True,
     st.session_state['ui_mode'] = 'chat'
     st.rerun()
 
-st.sidebar.title('⚙️ 我的风控设置')
+st.sidebar.title('我的风控设置')
 with st.sidebar.form('cfg'):
     equity = st.number_input('账户本金（USDT）', min_value=1.0,
                              value=float(cfg['本金']), step=100.0)
@@ -95,8 +95,8 @@ st.sidebar.metric('今天已交易', f'{state["today_trades"]} 笔')
 st.sidebar.metric('当前连亏', f'{state["consecutive_losses"]} 笔')
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
-    ['📋 交易方案', '🛑 开仓前检查', '📒 交易日志', '📊 绩效看板', '🔍 复盘',
-     '🌐 行情参考', '🔔 市场监控', '📰 市场情报', '🤖 多智能体'])
+    ['交易方案', '开仓前检查', '交易日志', '绩效看板', '复盘',
+     '行情参考', '市场监控', '市场情报', '多智能体'])
 
 
 # ============ 页签2：开仓前检查 ============
@@ -122,7 +122,7 @@ with tab2:
                            placeholder='例：4小时回踩MA20不破，缩量，止损放在前低下方',
                            key='ck_reason')
 
-    if st.button('🔍 检查这一单', type='primary'):
+    if st.button('检查这一单', type='primary'):
         direction = 'long' if direction_cn == '多' else 'short'
         if entry <= 0:
             st.error('请填写开仓价')
@@ -146,11 +146,11 @@ with tab2:
                                          target if target > 0 else None)
 
                 if verdict == '拒绝':
-                    st.error(f'## ❌ 结论：拒绝开仓')
+                    st.error('## 结论：拒绝开仓')
                 elif verdict == '警告':
-                    st.warning(f'## ⚠️ 结论：可以开，但有几处要注意')
+                    st.warning('## 结论：可以开，但有几处要注意')
                 else:
-                    st.success(f'## ✅ 结论：通过')
+                    st.success('## 结论：通过')
 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric('建议开仓数量', f'{pos["建议数量"]:.6f} {market.normalize_symbol(symbol)}')
@@ -171,7 +171,7 @@ with tab2:
 
                 st.markdown('#### 逐条检查')
                 for it in items:
-                    icon = {'通过': '✅', '警告': '⚠️', '拒绝': '❌',
+                    icon = {'通过': '通过', '警告': '注意', '拒绝': '拒绝',
                             '提示': '💡', '记录': '📝'}.get(it['级别'], '•')
                     st.markdown(f'{icon} **{it["项目"]}** —— {it["说明"]}')
 
@@ -302,7 +302,7 @@ with tab3:
         c1.download_button('⬇️ 导出 CSV',
                            df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
                            file_name='我的交易记录.csv', mime='text/csv')
-        with c2.expander('⚠️ 删除操作'):
+        with c2.expander('删除操作'):
             st.caption('删除是不可撤销的，建议先导出备份。')
             if st.button('删除最后一条记录'):
                 if len(df):
