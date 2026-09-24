@@ -39,7 +39,7 @@ def _run_plan(symbol, exchange, equity, risk_pct, leverage, use_debate,
         a = dict(analysis)
         a['主持人'] = dict(a.get('主持人') or {}, 方向=force_dir)
         analysis = a
-    progress('正在计算结构位，并让方案官选止损……')
+    progress(f'{llm.model_name("planner").split("/")[-1]}｜方案官｜正在选择止损、止盈并计算仓位')
     res = plan_mod.build_plan(
         symbol, analysis, equity=equity, risk_pct=risk_pct, leverage=leverage,
         fee_rate=float(cfg.get('手续费率', 0.0005)),

@@ -78,7 +78,17 @@ def start(name, fn, *args, **kwargs):
     task_id = f'{name}-{time.strftime("%Y%m%d%H%M%S")}-{uuid.uuid4().hex[:6]}'
 
     def progress(msg):
-        _update(task_id, 进度=str(msg)[:200])
+        msg = str(msg)[:200]
+        with _LOCK:
+            d = _read_all()
+            t = d.get(task_id) or {}
+            hist = list(t.get('进度历史') or [])
+            hist.append(f"{time.strftime('%H:%M:%S')} {msg}")
+            t['进度历史'] = hist[-40:]
+            t['进度'] = msg
+            t['更新时间'] = time.strftime('%Y-%m-%d %H:%M:%S')
+            d[task_id] = t
+            _write_all(d)
 
     def runner():
         try:

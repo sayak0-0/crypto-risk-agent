@@ -39,6 +39,10 @@ DIRECTIONS = ['偏多', '偏空', '中性', '无法判断']
 
 # ---------------- 四个分析师怎么分工 ----------------
 
+def _model_short(name):
+    return str(name or '模型').split('/')[-1]
+
+
 def _t(v, digits=2, unit=''):
     """数值格式化。**必须带单位** —— 这是踩过坑的。
 
@@ -420,6 +424,7 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         brief = a['brief'](snap, ind)
         # 每个分析师用各自配置的模型（多模型协商）
         my_model = model or llm.analyst_model(idx)
+        prog(f'{_model_short(my_model)}｜{a["名称"]}｜开始分析')
         use_compact = (prompt_mode == 'compact')
         tmpl = ANALYST_COMPACT if use_compact else ANALYST_PROMPT
         user = tmpl.format(data=json.dumps(_clean(brief), ensure_ascii=False, indent=1))
@@ -474,6 +479,7 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         parsed['_格式合规'] = ok
         parsed['_调用次数'] = attempts
         parsed['_模型'] = my_model
+        prog(f'{_model_short(my_model)}｜{a["名称"]}｜完成（{parsed.get("方向", "未知")}，信心 {parsed.get("信心", 0)}）')
         if raw:
             parsed['_原始输出'] = raw
         return parsed, usage_total
@@ -530,7 +536,9 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
             except Exception as e:
                 return {'_失败': f'{type(e).__name__}: {str(e)[:80]}'}, {}
 
-        prog('第一轮：看多研究员 vs 看空研究员 各自陈述……')
+        debate_model = model or llm.model_name('chair')
+        prog(f'{_model_short(debate_model)}｜看多研究员｜第一轮论证')
+        prog(f'{_model_short(debate_model)}｜看空研究员｜第一轮论证')
         with ThreadPoolExecutor(max_workers=2) as pool:
             fb = pool.submit(run_side, '看多', BULL_SYSTEM)
             fr = pool.submit(run_side, '看空', BEAR_SYSTEM)
@@ -561,6 +569,8 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
                     out[k] = '\n'.join(f'{i+1}. {s}' for i, s in enumerate(v))
             return out
 
+        prog(f'{_model_short(debate_model)}｜看多研究员｜反驳空方')
+        prog(f'{_model_short(debate_model)}｜看空研究员｜反驳多方')
         debate_result = {'看多第一轮': _norm(bull1), '看空第一轮': _norm(bear1),
                          '看多反驳': _norm(bull2), '看空反驳': _norm(bear2)}
         debate_text = json.dumps(_clean(debate_result), ensure_ascii=False, indent=1)
@@ -572,7 +582,8 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
     if debate_text:
         chair_user += DEBATE_CHAIR_ADDON.format(debate=debate_text)
     chair_system = '你是严谨的金融市场分析主持人，负责汇总多位分析师和一场多空辩论。'
-    prog('第二轮辩论完成，主持人正在汇总……')
+    chair_model = model or llm.model_name('chair')
+    prog(f'{_model_short(chair_model)}｜主持人｜正在整合 5 位分析师和辩论结论')
     try:
         chair_text, chair_usage, used_model = call_llm(
             chair_system, chair_user, model, api_key, role='chair',
@@ -581,7 +592,7 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
             max_tokens=700 if chair_mode == 'compact' else 1100)
     except Exception as first_error:
         # 主持人超时不能拖垮整张方案：自动换更快的分析模型重试一次。
-        prog('主持人响应超时，正在切换备用模型……')
+        prog(f'{_model_short(llm.model_name("analyst"))}｜主持人（备用）｜正在重新整合')
         try:
             chair_text, chair_usage, used_model = call_llm(
                 chair_system, chair_user, llm.model_name('analyst'), api_key,

@@ -382,9 +382,11 @@ async def _handle_prompt(text):
                 stt = tasks.status(tid)
                 state = stt.get('状态')
                 if state in ('排队中', '运行中'):
+                    hist = stt.get('进度历史') or []
+                    lines = '\n'.join(f'- {x}' for x in hist[-10:])
                     status.content = (
                         f"正在生成 **{sym}** 方案…\n\n"
-                        f"进度：{stt.get('进度') or '启动中'}\n\n"
+                        f"**模型团队进度**\n{lines or '- 等待启动'}\n\n"
                         f"已运行：{int(time.time() - started)} 秒"
                     )
                     await status.update()
