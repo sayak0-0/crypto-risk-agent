@@ -802,6 +802,38 @@ def t_binance_parse():
     assert 'signature=' in cap.url and 'timestamp=' in cap.url and 'recvWindow=' in cap.url
     assert cap.kwargs['headers']['X-MBX-APIKEY'] == 'k'
 
+def t_binance_account_parse():
+    payload = {
+        'totalWalletBalance': '1000.5', 'totalUnrealizedProfit': '12.3',
+        'totalMarginBalance': '1012.8', 'availableBalance': '800.0',
+        'totalInitialMargin': '200.0', 'totalMaintMargin': '20.0',
+        'assets': [{'asset': 'USDT', 'walletBalance': '1000.5',
+                    'availableBalance': '800.0', 'unrealizedProfit': '12.3',
+                    'marginBalance': '1012.8'}],
+    }
+    acc, cap = _with_fake(payload, exchange_sync.binance_account, 'k', 's')
+    approx(acc['钱包余额'], 1000.5)
+    approx(acc['保证金余额'], 1012.8)
+    approx(acc['可用余额'], 800.0)
+    assert acc['资产'][0]['资产'] == 'USDT'
+    assert '/fapi/v2/account' in cap.url
+
+
+def t_binance_open_orders_parse():
+    payload = [{
+        'orderId': 123, 'symbol': 'BTCUSDT', 'side': 'SELL',
+        'positionSide': 'BOTH', 'type': 'STOP_MARKET', 'status': 'NEW',
+        'price': '0', 'stopPrice': '80000', 'origQty': '0.01',
+        'executedQty': '0', 'reduceOnly': True, 'closePosition': True,
+        'time': 1700000000000, 'updateTime': 1700000000000,
+    }]
+    orders, cap = _with_fake(payload, exchange_sync.binance_open_orders, None, 'k', 's')
+    assert len(orders) == 1 and orders[0]['类型'] == 'STOP_MARKET'
+    approx(orders[0]['触发价'], 80000)
+    assert orders[0]['只减仓'] and orders[0]['全平仓单']
+    assert '/fapi/v1/openOrders' in cap.url
+
+
 def t_binance_sign_correct():
     """用独立算法复算签名，确认拼接方式没错。"""
     import hashlib, hmac, re
@@ -1047,7 +1079,8 @@ for n, f in [('白名单报错会显示真实IP', t_whitelist_error_shows_ip),
              ('权限体检-接口挂了返回None', t_key_report_unavailable),
              ('权限体检-没配Key返回None', t_key_report_no_creds),
              ('密钥打码', t_mask), ('检测 Key 是否配置', t_has_credentials),
-             ('币安持仓解析', t_binance_parse), ('币安签名拼接', t_binance_sign_correct),
+             ('币安持仓解析', t_binance_parse), ('币安账户余额解析', t_binance_account_parse),
+             ('币安止盈止损挂单解析', t_binance_open_orders_parse), ('币安签名拼接', t_binance_sign_correct),
              ('OKX 持仓解析与折算', t_okx_parse), ('Bybit 持仓解析', t_bybit_parse),
              ('报错不泄露密钥', t_error_no_leak), ('401 给出人话提示', t_error_401_message),
              ('不支持的交易所报错', t_fetch_unsupported),
@@ -3044,6 +3077,36 @@ def t_chat_fallback_no_prediction():
     assert '抛硬币' in txt, '要说明方向判断的局限'
     assert '会涨' not in txt, '兜底文本不能替用户下确定结论'
 
+def t_chat_account_question():
+    orig = chat.exchange_sync.binance_summary if hasattr(chat, 'exchange_sync') else None
+    import exchange_sync
+    old_summary = exchange_sync.binance_summary
+    exchange_sync.binance_summary = lambda: {
+        '账户': {'钱包余额': 1000, '保证金余额': 1100, '可用余额': 800},
+        '持仓': [{'币种': 'BTCUSDT', '方向': '多'}], '挂单': [],
+    }
+    try:
+        intent, res = chat.dispatch('我的币安余额还剩多少')
+        assert intent == 'account' and res['账户']['钱包余额'] == 1000
+    finally:
+        exchange_sync.binance_summary = old_summary
+
+
+def t_chat_order_question():
+    import exchange_sync
+    old = exchange_sync.binance_open_orders
+    old_pos = exchange_sync.binance_positions
+    exchange_sync.binance_open_orders = lambda: [{
+        '币种': 'BTCUSDT', '类型': 'STOP_MARKET', '触发价': 80000}]
+    exchange_sync.binance_positions = lambda: []
+    try:
+        intent, res = chat.dispatch('我的止盈止损在哪里')
+        assert intent == 'orders' and res['挂单'][0]['触发价'] == 80000
+    finally:
+        exchange_sync.binance_open_orders = old
+        exchange_sync.binance_positions = old_pos
+
+
 def t_chat_news_no_prediction():
     """新闻入口只输出波动风险，不把规则结果包装成涨跌预测。"""
     orig_scan, orig_note = chat.news.scan, chat.news.risk_note
@@ -3075,7 +3138,9 @@ for n, f in [('识别币种', t_chat_find_symbol),
              ('适合开仓问题给客观候选', t_chat_pick_question),
              ('兜底不预测涨跌', t_chat_fallback_no_prediction),
              ('快捷操作列表', t_chat_quick_actions),
-             ('新闻风险不预测方向', t_chat_news_no_prediction)]:
+             ('新闻风险不预测方向', t_chat_news_no_prediction),
+             ('币安余额问答', t_chat_account_question),
+             ('止盈止损挂单问答', t_chat_order_question)]:
     check(n, f)
 
 

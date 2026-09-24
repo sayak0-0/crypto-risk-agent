@@ -12,7 +12,7 @@ def test_actions():
     labels = [a.label for a in app._actions()]
     for want in ('生成方案', '扫描市场', '查行情', '新闻风险', 'BTC', 'DOGE'):
         assert want in labels, (want, labels)
-    assert len(labels) == 14
+    assert len(labels) == 16
 
 
 def test_pick_intent_and_render():
@@ -35,6 +35,20 @@ def test_self_info():
     assert app.llm.model_name('analyst') in text
     assert 'RAG' in text and '公开新闻' in text
     assert '行情' in text
+
+
+def test_account_render():
+    text = app._account_md({
+        '账户': {'钱包余额': 1000.0, '保证金余额': 1010.0, '可用余额': 800.0},
+        '持仓': [{'币种': 'BTCUSDT', '方向': '多', '杠杆': 10,
+                  '开仓价': 80000.0, '标记价': 81000.0,
+                  '未实现盈亏': 10.0, '爆仓价': 72000.0}],
+        '挂单': [{'币种': 'BTCUSDT', '类型': 'STOP_MARKET',
+                  '买卖': 'SELL', '触发价': 78000.0, '数量': 0.1,
+                  '已成交': 0.0, '全平仓单': True}],
+    })
+    assert '币安账户' in text and '1,010.00' in text
+    assert '止损市价' in text and '78,000.000000' in text
 
 
 def test_quote():
@@ -102,7 +116,7 @@ def test_result_dispatch():
 
 
 if __name__ == '__main__':
-    tests = [test_actions, test_pick_intent_and_render, test_self_info, test_quote, test_single_plan,
+    tests = [test_actions, test_pick_intent_and_render, test_self_info, test_account_render, test_quote, test_single_plan,
              test_both_plan, test_result_dispatch]
     for fn in tests:
         fn()

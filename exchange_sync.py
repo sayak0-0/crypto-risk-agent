@@ -158,6 +158,90 @@ def binance_positions(api_key=None, api_secret=None):
     return out
 
 
+def _binance_signed_get(path, params=None, api_key=None, api_secret=None):
+    api_key = api_key or get_env('BINANCE_API_KEY')
+    api_secret = api_secret or get_env('BINANCE_API_SECRET')
+    if not api_key or not api_secret:
+        raise RuntimeError('没有配置 BINANCE_API_KEY / BINANCE_API_SECRET')
+    payload = dict(params or {})
+    payload.update({'timestamp': int(time.time() * 1000), 'recvWindow': 5000})
+    qs = urlencode(payload)
+    sig = _hmac_hex(api_secret, qs)
+    r = requests.get(f'https://fapi.binance.com{path}?{qs}&signature={sig}',
+                     headers={'X-MBX-APIKEY': api_key, **UA},
+                     timeout=TIMEOUT, proxies=get_proxy())
+    return _json_or_error(r, '币安')
+
+
+def binance_account(api_key=None, api_secret=None):
+    """读取币安 U 本位合约账户余额（只读）。"""
+    d = _binance_signed_get('/fapi/v2/account', api_key=api_key,
+                            api_secret=api_secret)
+    assets = []
+    for a in d.get('assets') or []:
+        wallet = _num(a.get('walletBalance'))
+        available = _num(a.get('availableBalance'))
+        unrealized = _num(a.get('unrealizedProfit'))
+        margin = _num(a.get('marginBalance'))
+        if wallet or available or unrealized or margin:
+            assets.append({
+                '资产': a.get('asset'), '钱包余额': wallet,
+                '可用余额': available, '未实现盈亏': unrealized,
+                '保证金余额': margin,
+            })
+    return {
+        '交易所': '币安',
+        '钱包余额': _num(d.get('totalWalletBalance')),
+        '未实现盈亏': _num(d.get('totalUnrealizedProfit')),
+        '保证金余额': _num(d.get('totalMarginBalance')),
+        '可用余额': _num(d.get('availableBalance')),
+        '初始保证金': _num(d.get('totalInitialMargin')),
+        '维持保证金': _num(d.get('totalMaintMargin')),
+        '可提余额': _num(d.get('availableBalance')),
+        '资产': assets,
+        '更新时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    }
+
+
+def binance_open_orders(symbol=None, api_key=None, api_secret=None):
+    """读取币安 U 本位未成交订单，包括止盈止损条件单（只读）。"""
+    params = {'symbol': symbol} if symbol else None
+    data = _binance_signed_get('/fapi/v1/openOrders', params=params,
+                               api_key=api_key, api_secret=api_secret)
+    if isinstance(data, dict):
+        data = [data]
+    out = []
+    for o in data or []:
+        out.append({
+            '订单ID': o.get('orderId'),
+            '币种': o.get('symbol'),
+            '买卖': o.get('side'),
+            '仓位方向': o.get('positionSide'),
+            '类型': o.get('type'),
+            '状态': o.get('status'),
+            '价格': _num(o.get('price')),
+            '触发价': _num(o.get('stopPrice')),
+            '数量': _num(o.get('origQty')),
+            '已成交': _num(o.get('executedQty')),
+            '只减仓': bool(o.get('reduceOnly')),
+            '全平仓单': bool(o.get('closePosition')),
+            '创建时间': (datetime.fromtimestamp(o['time'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                         if o.get('time') else None),
+            '更新时间': (datetime.fromtimestamp(o['updateTime'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                         if o.get('updateTime') else None),
+        })
+    return out
+
+
+def binance_summary():
+    """一次读取账户余额、当前持仓和未成交订单。"""
+    return {
+        '账户': binance_account(),
+        '持仓': binance_positions(),
+        '挂单': binance_open_orders(),
+    }
+
+
 def binance_key_report(api_key=None, api_secret=None):
     """给币安 API Key 做一次权限体检。
 

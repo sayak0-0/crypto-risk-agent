@@ -18,7 +18,9 @@ QUICK_ACTIONS = [
     ('生成方案', '帮我分析一下 BTC'),
     ('适合开仓', '适合开仓的币种'),
     ('扫描市场', '扫描一下全市场有什么异动'),
+    ('账户余额', '我的币安余额还剩多少'),
     ('查看持仓', '我的持仓怎么样'),
+    ('挂单/止盈止损', '我的开单情况和止盈止损在哪里'),
     ('复盘', '帮我复盘一下我亏在哪'),
     ('绩效', '看看我的绩效'),
     ('查行情', 'BTC 现价多少'),
@@ -162,6 +164,7 @@ def _self_info_md():
         '',
         '- 行情：币安 / OKX / Bybit 公开接口',
         '- 新闻：项目配置的公开 RSS 源',
+        '- 币安账户：余额、当前持仓、未成交订单和止盈止损（只读）',
         '- 个人数据：本机交易记录、持仓和风控设置',
         '',
         '### RAG 情况',
@@ -170,6 +173,51 @@ def _self_info_md():
         '普通问答时，代码会把当前行情事实和检索到的公开新闻一起发给模型；',
         'RAG 只索引公开新闻，不读取你的交易记录、持仓或盈亏。',
     ])
+
+
+def _order_type_cn(t):
+    return {
+        'STOP_MARKET': '止损市价', 'TAKE_PROFIT_MARKET': '止盈市价',
+        'STOP': '止损限价', 'TAKE_PROFIT': '止盈限价',
+        'LIMIT': '限价单', 'MARKET': '市价单',
+        'TRAILING_STOP_MARKET': '追踪止损',
+    }.get(str(t or ''), str(t or '订单'))
+
+
+def _account_md(res):
+    if res.get('错误'):
+        return '读取币安账户失败：\n\n' + str(res['错误'])
+    a = res.get('账户') or res
+    lines = ['### 币安账户', '']
+    for key in ('钱包余额', '未实现盈亏', '保证金余额', '可用余额',
+                '初始保证金', '维持保证金'):
+        if a.get(key) is not None:
+            lines.append(f'- {key}：**{float(a.get(key) or 0):,.2f} USDT**')
+    positions = res.get('持仓') or []
+    lines += ['', f'### 当前持仓（{len(positions)} 个）', '']
+    if not positions:
+        lines.append('当前没有持仓。')
+    for p in positions:
+        lines.append(
+            f"- **{p.get('币种')}** {p.get('方向')} {p.get('杠杆')}x｜"
+            f"开仓 {float(p.get('开仓价') or 0):,.6f}｜"
+            f"标记 {float(p.get('标记价') or 0):,.6f}｜"
+            f"浮盈亏 {float(p.get('未实现盈亏') or 0):+,.2f} USDT｜"
+            f"爆仓 {float(p.get('爆仓价') or 0):,.6f}"
+        )
+    orders = res.get('挂单') or []
+    lines += ['', f'### 挂单 / 止盈止损（{len(orders)} 个）', '']
+    if not orders:
+        lines.append('当前没有未成交挂单。')
+    for o in orders:
+        price = float(o.get('触发价') or o.get('价格') or 0)
+        lines.append(
+            f"- **{o.get('币种')}** {_order_type_cn(o.get('类型'))}｜"
+            f"{o.get('买卖')}｜触发/价格 {price:,.6f}｜数量 {float(o.get('数量') or 0):.6f}｜"
+            f"已成交 {float(o.get('已成交') or 0):.6f}｜"
+            f"{'全平仓' if o.get('全平仓单') else '普通'}"
+        )
+    return '\n'.join(lines)
 
 
 def _pick_md(res):
@@ -195,6 +243,8 @@ def _result_md(intent, res):
     if intent == 'plan':
         return None
     kind = res.get('类型')
+    if kind in ('账户', '订单'):
+        return _account_md(res)
     if kind == '候选':
         return _pick_md(res)
     if kind == '行情':
@@ -299,7 +349,7 @@ async def _handle_prompt(text):
 
         rag_docs = []
         rag_context = ''
-        if rag.is_ready() and intent not in ('plan', 'quote', 'dashboard', 'review'):
+        if rag.is_ready() and intent not in ('plan', 'quote', 'dashboard', 'review', 'account', 'orders'):
             rag_docs = await cl.make_async(rag.search)(
                 text, top_k=5, symbols=[symbol] if symbol else None)
             rag_context = rag.format_context(rag_docs)
@@ -311,7 +361,7 @@ async def _handle_prompt(text):
             step.output = f'完成，使用 {len(rag_docs)} 条公开资料' if rag_docs else '完成'
 
         content = _result_md(intent, result)
-        if rag_docs and intent not in ('plan', 'quote', 'dashboard', 'review'):
+        if rag_docs and intent not in ('plan', 'quote', 'dashboard', 'review', 'account', 'orders'):
             sources = rag.format_sources(rag_docs)
             if sources:
                 content += '\n\n---\n**本次检索到的公开资料**\n\n' + sources

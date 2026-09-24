@@ -212,6 +212,26 @@ def _render_news(res):
     st.caption('新闻只用于判断波动风险，不代表利好或利空，也不给出涨跌方向。')
 
 
+def _render_account(res):
+    if res.get('错误'):
+        st.error(res['错误'])
+        return
+    a = res.get('账户') or res
+    c = st.columns(4)
+    c[0].metric('钱包余额', f"{float(a.get('钱包余额') or 0):,.2f} U")
+    c[1].metric('保证金余额', f"{float(a.get('保证金余额') or 0):,.2f} U")
+    c[2].metric('可用余额', f"{float(a.get('可用余额') or 0):,.2f} U")
+    c[3].metric('未实现盈亏', f"{float(a.get('未实现盈亏') or 0):+,.2f} U")
+    positions = res.get('持仓') or []
+    st.markdown('**当前持仓**')
+    st.dataframe(pd.DataFrame(positions), use_container_width=True,
+                 height=min(320, 70 + 34 * max(1, len(positions))))
+    orders = res.get('挂单') or []
+    st.markdown('**挂单 / 止盈止损**')
+    st.dataframe(pd.DataFrame(orders), use_container_width=True,
+                 height=min(320, 70 + 34 * max(1, len(orders))))
+
+
 def _render_review(res):
     if not res.get('有数据'):
         st.info('还没有已平仓的交易记录。先记几笔再来复盘。')
@@ -258,6 +278,8 @@ def _render_result(intent, res):
         _render_positions(res)
     elif t == '扫描':
         _render_scan(res)
+    elif t in ('账户', '订单'):
+        _render_account(res)
     elif t == '新闻':
         _render_news(res)
     elif t == '复盘':

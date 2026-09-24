@@ -33,6 +33,8 @@ RULES = [
     ('plan',      r'(方案|分析一下|怎么看|该做多|该做空|能不能做|有机会|值不值得|要不要做|能买|能做)'),
     ('pick',      r'(适合.*开仓|适合.*交易|可以开.*哪些|开仓.*哪些|哪些币|哪些币种|什么币|买什么|做什么币|推荐.*币种|推荐.*币)'),
     ('scan',      r'(扫描|扫一遍|推荐|哪些币|异动|全市场|热门|有啥机会|有什么机会)'),
+    ('account',   r'(余额|账户余额|我的币安|币安账户|本金|可用余额|保证金余额|钱包余额|净值|权益|还剩多少)'),
+    ('orders',    r'(开单|挂单|订单|委托|止盈|止损|止盈止损|开仓情况|开单情况|仓位情况)'),
     ('positions', r'(我的持仓|我的仓位|持仓怎么样|仓位健康|拿着什么|爆仓距离|我买的)'),
     ('review',    r'(复盘|总结|我亏在哪|我的问题|亏钱的原因|分析我自己)'),
     ('dashboard', r'(绩效|看板|胜率|盈亏比|回撤|统计)'),
@@ -43,6 +45,7 @@ RULES = [
 LABELS = {
     'plan': '生成交易方案', 'scan': '扫描全市场', 'pick': '筛选可观察币种',
     'news': '新闻风险',
+    'account': '查看账户', 'orders': '查看挂单/止盈止损',
     'positions': '查看持仓', 'review': '复盘', 'dashboard': '绩效看板',
     'quote': '查行情',
     'sync': '同步持仓', 'chat': '对话',
@@ -87,6 +90,26 @@ def run_quote(symbol):
     ind = market.compute_indicators(snap.get('K线'), snap.get('标记价'))
     return {'类型': '行情', '币种': market.normalize_symbol(sym),
             '快照': snap, '指标': ind}
+
+
+def run_account():
+    """读取币安余额、持仓和未成交订单。只读，不下单。"""
+    import exchange_sync
+    try:
+        data = exchange_sync.binance_summary()
+        return {'类型': '账户', **data}
+    except Exception as e:
+        return {'类型': '账户', '错误': str(e)}
+
+
+def run_orders():
+    """读取币安当前挂单和止盈止损条件单。"""
+    import exchange_sync
+    try:
+        return {'类型': '订单', '挂单': exchange_sync.binance_open_orders(),
+                '持仓': exchange_sync.binance_positions()}
+    except Exception as e:
+        return {'类型': '订单', '错误': str(e)}
 
 
 def run_positions():
@@ -188,7 +211,18 @@ def run_dashboard():
 
 def run_plan(symbol, cfg=None, use_debate=True, force_dir=None):
     import plan_ui
-    return plan_ui.start_task(symbol or 'BTCUSDT', cfg or {},
+    import exchange_sync
+    cfg = dict(cfg or {})
+    equity = cfg.get('本金', 1000.0)
+    try:
+        account = exchange_sync.binance_account()
+        live = float(account.get('保证金余额') or account.get('钱包余额') or 0)
+        if live > 0:
+            equity = live
+            cfg['本金'] = live
+    except Exception:
+        pass
+    return plan_ui.start_task(symbol or 'BTCUSDT', cfg, equity=equity,
                               use_debate=use_debate, force_dir=force_dir)
 
 
@@ -264,6 +298,10 @@ def dispatch(text, cfg=None, allow_llm=False, extra_context=None):
         return intent, run_pick()
     if intent == 'news':
         return intent, run_news()
+    if intent == 'account':
+        return intent, run_account()
+    if intent == 'orders':
+        return intent, run_orders()
     if intent == 'positions':
         return intent, run_positions()
     if intent == 'review':
@@ -281,7 +319,9 @@ def quick_actions():
         ('生成方案', '帮我分析一下 BTC'),
         ('适合开仓', '适合开仓的币种'),
         ('扫描市场', '扫描一下全市场有什么异动'),
+        ('账户余额', '我的币安余额还剩多少'),
         ('查看持仓', '我的持仓怎么样'),
+        ('挂单/止盈止损', '我的开单情况和止盈止损在哪里'),
         ('复盘', '帮我复盘一下我亏在哪'),
         ('绩效', '看看我的绩效'),
         ('查行情', 'BTC 现价多少'),
