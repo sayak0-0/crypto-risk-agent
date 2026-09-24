@@ -369,9 +369,10 @@ def simple_plan(symbol, snap, ind, direction, equity, risk_pct, leverage,
 
 
 def directional_lean(analysis):
-    """从分析师投票推导弱倾向，避免最终只剩“无法判断”。"""
+    """只在证据足够时给弱倾向；不足时明确返回 None，不硬猜。"""
     score = 0.0
-    total = 0.0
+    directional_conf = 0.0
+    directional_count = 0
     for a in (analysis or {}).get('分析师') or []:
         if a.get('_名称') == '风控官':
             continue
@@ -379,26 +380,18 @@ def directional_lean(analysis):
             conf = max(0.0, min(100.0, float(a.get('信心') or 0)))
         except Exception:
             conf = 0.0
-        total += conf
-        if a.get('方向') == '偏多':
-            score += conf
-        elif a.get('方向') == '偏空':
-            score -= conf
-    if score > 0:
-        lean = '偏多'
-    elif score < 0:
-        lean = '偏空'
-    else:
-        chg = 0.0
-        for a in (analysis or {}).get('分析师') or []:
-            for v in (a.get('_数据') or {}).values():
-                try:
-                    chg = float(str(v).replace('%', '').split('（')[0])
-                except Exception:
-                    pass
-        lean = '偏空' if chg < 0 else '偏多'
-    ratio = abs(score) / total if total else 0.0
-    strength = '强' if ratio >= 0.5 else '中' if ratio >= 0.2 else '弱'
+        direction = a.get('方向')
+        if direction not in ('偏多', '偏空'):
+            continue
+        directional_count += 1
+        directional_conf += conf
+        score += conf if direction == '偏多' else -conf
+    ratio = abs(score) / directional_conf if directional_conf else 0.0
+    # 至少两位分析师明确投票、总信心足够、分差有意义，才给倾向。
+    if directional_count < 2 or directional_conf < 60 or ratio < 0.15:
+        return None, None, round(score, 1)
+    lean = '偏多' if score > 0 else '偏空'
+    strength = '强' if ratio >= 0.5 else '中' if ratio >= 0.25 else '弱'
     return lean, strength, round(score, 1)
 
 

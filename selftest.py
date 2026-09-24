@@ -1066,7 +1066,12 @@ def t_key_report_unavailable():
         exchange_sync.requests.get = orig
 
 def t_key_report_no_creds():
-    assert exchange_sync.binance_key_report('', '') is None
+    old = exchange_sync.get_env
+    exchange_sync.get_env = lambda k, d=None: None
+    try:
+        assert exchange_sync.binance_key_report('', '') is None
+    finally:
+        exchange_sync.get_env = old
 
 for n, f in [('白名单报错会显示真实IP', t_whitelist_error_shows_ip),
              ('报错没有IP也不崩', t_no_ip_in_error_still_works),
@@ -2982,6 +2987,22 @@ def t_ambiguous_direction_gives_both_plans():
         else:
             assert side['止盈价'] < side['入场价'] < side['止损价'], side
 
+def t_directional_lean_threshold():
+    flat = {'分析师': [
+        {'_名称': 'A', '方向': '偏多', '信心': 50},
+        {'_名称': 'B', '方向': '偏空', '信心': 50},
+    ]}
+    lean, strength, _ = plan.directional_lean(flat)
+    assert lean is None and strength is None
+    strong = {'分析师': [
+        {'_名称': 'A', '方向': '偏空', '信心': 60},
+        {'_名称': 'B', '方向': '偏空', '信心': 50},
+        {'_名称': 'C', '方向': '偏多', '信心': 40},
+    ]}
+    lean, strength, _ = plan.directional_lean(strong)
+    assert lean == '偏空' and strength in ('弱', '中', '强')
+
+
 def t_ambiguous_still_has_ai_info():
     snap = {'标记价': 100.0, 'K线': KL}
     saved = _fake_market(snap, {'ATR14': 2.0, 'MA20': 98, 'MA60': 95})
@@ -2999,7 +3020,8 @@ def t_ambiguous_still_has_ai_info():
     assert ai.get('信心') == 15
     assert '由你决定' in (ai.get('说明') or ''), ai
 
-for n, f in [('方向不明确时给双向方案（核心）', t_ambiguous_direction_gives_both_plans),
+for n, f in [('倾向门槛不硬猜', t_directional_lean_threshold),
+             ('方向不明确时给双向方案（核心）', t_ambiguous_direction_gives_both_plans),
              ('双向方案仍带 AI 判断信息', t_ambiguous_still_has_ai_info)]:
     check(n, f)
 
