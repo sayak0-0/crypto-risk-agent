@@ -227,8 +227,9 @@ def run_pick_plan(cfg=None, limit=8):
     sym = chosen.get('币种')
     reason = chosen.get('筛选理由') or f"成交额第 {chosen.get('成交额排名')} 名"
     tid = run_plan(sym, cfg)
+    ordered = preferred + [x for x in rows if x not in preferred]
     return {'类型': '方案任务', 'task_id': tid, '币种': sym,
-            '推荐理由': reason, '候选': rows[:5]}
+            '推荐理由': reason, '候选': ordered[:5]}
 
 
 def run_plan(symbol, cfg=None, use_debate=True, force_dir=None):

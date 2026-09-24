@@ -338,6 +338,11 @@ def _resolve_reference_values(text, candidates=None, last_symbol=''):
             if re.search(r'方案|开仓|分析|怎么看|能做', raw):
                 return f'给我 {sym} 的开仓方案', sym
             return f'帮我分析一下 {sym}', sym
+    if re.search(r'换一个|换个|换币|不要这个|再推荐|重新推荐|下一个', raw) and candidates:
+        options = [x for x in candidates if x and x != last_symbol]
+        if options:
+            sym = options[0]
+            return f'给我 {sym} 的开仓方案', sym
     if re.search(r'这个|这个币|它|该币|这只', raw) and last_symbol:
         return re.sub(r'这个币|这个|它|该币|这只', last_symbol, raw, count=1), last_symbol
     if re.search(r'开仓方案|生成方案', raw) and not chat.find_symbol(raw) and last_symbol:

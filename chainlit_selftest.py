@@ -57,6 +57,8 @@ def test_context_reference():
     assert 'NEARUSDT' in text and sym == 'NEARUSDT'
     text, sym = app._resolve_reference_values('我说的是NEARUSDT 给这个的方案', cands, 'BTCUSDT')
     assert sym == 'NEARUSDT' and 'NEARUSDT' in text
+    text, sym = app._resolve_reference_values('换一个', ['SOLUSDT','HYPEUSDT','NEARUSDT'], 'SOLUSDT')
+    assert sym == 'HYPEUSDT' and 'HYPEUSDT' in text
 
 
 def test_quote():
