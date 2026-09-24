@@ -221,7 +221,9 @@ def run_pick_plan(cfg=None, limit=8):
     rows = picked.get('候选') or []
     if not rows:
         return {'类型': '方案任务', '错误': '当前没有筛出可生成方案的币种。'}
-    chosen = rows[0]
+    # 未指定 BTC/ETH 时，推荐默认优先其他候选，避免总是退回 BTC。
+    preferred = [x for x in rows if x.get('币种') not in ('BTCUSDT', 'ETHUSDT')]
+    chosen = (preferred or rows)[0]
     sym = chosen.get('币种')
     reason = chosen.get('筛选理由') or f"成交额第 {chosen.get('成交额排名')} 名"
     tid = run_plan(sym, cfg)
