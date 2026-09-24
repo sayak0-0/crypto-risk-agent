@@ -12,7 +12,19 @@ def test_actions():
     labels = [a.label for a in app._actions()]
     for want in ('生成方案', '扫描市场', '查行情', '新闻风险', 'BTC', 'DOGE'):
         assert want in labels, (want, labels)
-    assert len(labels) == 13
+    assert len(labels) == 14
+
+
+def test_pick_intent_and_render():
+    intent, symbol = app.chat.classify('适合开仓的币种')
+    assert intent == 'pick', (intent, symbol)
+    text = app._pick_md({
+        '说明': '只是观察名单', '筛选条件': '流动性好、波动不过大',
+        '候选': [{'币种': 'BTCUSDT', '标记价': 100000.0,
+                  '24h涨跌%': -2.0, '资金费率%': 0.005,
+                  '成交额排名': 1, '筛选理由': '成交额第一'}],
+    })
+    assert 'BTCUSDT' in text and '成交额第 1 名' in text
 
 
 def test_quote():
@@ -80,7 +92,7 @@ def test_result_dispatch():
 
 
 if __name__ == '__main__':
-    tests = [test_actions, test_quote, test_single_plan,
+    tests = [test_actions, test_pick_intent_and_render, test_quote, test_single_plan,
              test_both_plan, test_result_dispatch]
     for fn in tests:
         fn()

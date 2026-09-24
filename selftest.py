@@ -2990,10 +2990,38 @@ def t_chat_classify():
         ('看看我的绩效', 'dashboard'),
         ('BTC 现价多少', 'quote'),
         ('特朗普讲话对币圈有什么影响', 'news'),
+        ('适合开仓的币种', 'pick'),
+        ('解释一下什么是资金费率', 'chat'),
     ]
     for text, want in cases:
         intent, sym = chat.classify(text)
         assert intent == want, f'{text!r} -> {intent}，期望 {want}'
+
+def t_chat_pick_question():
+    """问适合开仓的币种时，要给出客观候选，而不是泛泛闲聊。"""
+    orig = chat.watchlist.discover
+    orig_crypto = chat.watchlist.crypto_contracts
+    chat.watchlist.crypto_contracts = lambda: {'BTCUSDT'}
+    chat.watchlist.discover = lambda top_n=300: {
+        '错误': None, '扫描时间': '2026-09-24 12:00:00',
+        '全市场合约数': 2,
+        '数据': [
+            {'币种': 'BTCUSDT', '标记价': 100.0, '24h涨跌%': -2.0,
+             '资金费率%': 0.005, '成交额排名': 1, '筛选理由': '成交额第一'},
+            {'币种': 'RISKYUSDT', '标记价': 1.0, '24h涨跌%': 15.0,
+             '资金费率%': 0.2, '成交额排名': 2, '筛选理由': '异动'},
+            {'币种': 'XAUUSDT', '标记价': 4000.0, '24h涨跌%': 1.0,
+             '资金费率%': 0.0, '成交额排名': 3, '筛选理由': '黄金'},
+        ],
+    }
+    try:
+        res = chat.run_pick()
+    finally:
+        chat.watchlist.discover = orig
+        chat.watchlist.crypto_contracts = orig_crypto
+    assert res['类型'] == '候选'
+    assert [x['币种'] for x in res['候选']] == ['BTCUSDT']
+
 
 def t_chat_plan_intent_has_symbol():
     """说「分析 BTC」时要认出是 BTC。"""
@@ -3042,6 +3070,7 @@ def t_chat_quick_actions():
 for n, f in [('识别币种', t_chat_find_symbol),
              ('意图分类', t_chat_classify),
              ('方案意图带币种', t_chat_plan_intent_has_symbol),
+             ('适合开仓问题给客观候选', t_chat_pick_question),
              ('兜底不预测涨跌', t_chat_fallback_no_prediction),
              ('快捷操作列表', t_chat_quick_actions),
              ('新闻风险不预测方向', t_chat_news_no_prediction)]:

@@ -5,6 +5,7 @@
 一次返回**全部**合约的数据。所以不管自选多少币种，都只花 2 次请求。
 """
 import json
+from functools import lru_cache
 
 import requests
 
@@ -217,6 +218,27 @@ def annotate(rows, positions=None):
         r['筛选理由'] = '；'.join(why)
         r['值得看'] = bool(tags)
     return rows
+
+
+@lru_cache(maxsize=1)
+def crypto_contracts():
+    """返回币安 USDT 永续里的真加密货币合约集合。
+
+    过滤掉 TRADIFI_PERPETUAL（代币化股票、黄金、原油等）。
+    元数据拿不到时返回 None，由调用方使用兜底名单，不阻断功能。
+    """
+    try:
+        info = _get(BINANCE + '/fapi/v1/exchangeInfo')
+        out = {
+            x.get('symbol') for x in (info.get('symbols') or [])
+            if x.get('status') == 'TRADING'
+            and x.get('contractType') == 'PERPETUAL'
+            and x.get('underlyingType') == 'COIN'
+            and x.get('quoteAsset') == 'USDT'
+        }
+        return out or None
+    except Exception:
+        return None
 
 
 def discover(top_n=200):

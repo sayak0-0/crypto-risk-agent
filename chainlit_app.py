@@ -14,6 +14,7 @@ APP_NAME = '合约交易助手'
 
 QUICK_ACTIONS = [
     ('生成方案', '帮我分析一下 BTC'),
+    ('适合开仓', '适合开仓的币种'),
     ('扫描市场', '扫描一下全市场有什么异动'),
     ('查看持仓', '我的持仓怎么样'),
     ('复盘', '帮我复盘一下我亏在哪'),
@@ -130,10 +131,31 @@ def _dashboard_md(res):
     ])
 
 
+def _pick_md(res):
+    if res.get('错误'):
+        return f"筛选失败：{res['错误']}"
+    lines = [f"### 可观察币种", '', res.get('说明') or '', '',
+             f"筛选条件：{res.get('筛选条件') or ''}", '']
+    for i, row in enumerate(res.get('候选') or [], 1):
+        lines.append(
+            f"{i}. **{row.get('币种')}**　现价 {row.get('标记价', 0):,.6f}　"
+            f"24h {row.get('24h涨跌%', 0):+.2f}%　"
+            f"费率 {row.get('资金费率%', 0):+.4f}%　"
+            f"成交额第 {row.get('成交额排名', '—')} 名"
+        )
+        reason = row.get('筛选理由')
+        if reason:
+            lines.append(f"   - {reason}")
+    lines += ['', '这只是观察名单，不是买入推荐；每个标的仍然要等自己的入场和止损。']
+    return '\n'.join(lines)
+
+
 def _result_md(intent, res):
     if intent == 'plan':
         return None
     kind = res.get('类型')
+    if kind == '候选':
+        return _pick_md(res)
     if kind == '行情':
         return _quote_md(res)
     if kind == '持仓':
@@ -194,42 +216,52 @@ async def _handle_prompt(text):
     intent, symbol = chat.classify(text)
     label = chat.LABELS.get(intent, '对话')
 
-    async with cl.Step(name=f'识别到：{label}', type='run') as step:
-        step.output = text
+    status = cl.Message(content='正在思考…')
+    await status.send()
 
-    if intent == 'plan':
-        sym = symbol or 'BTCUSDT'
-        msg = cl.Message(content=f'正在生成 {sym} 方案…')
-        await msg.send()
-        tid = await cl.make_async(chat.run_plan)(sym, cfg)
-        started = time.time()
-        while True:
-            await asyncio.sleep(2)
-            stt = tasks.status(tid)
-            state = stt.get('状态')
-            if state in ('排队中', '运行中'):
-                msg.content = (
-                    f"正在生成 **{sym}** 方案…\n\n"
-                    f"进度：{stt.get('进度') or '启动中'}\n\n"
-                    f"已运行：{int(time.time() - started)} 秒"
-                )
-                await msg.update()
-                continue
-            if state == '失败':
-                msg.content = f"方案生成失败：{stt.get('错误') or '未知错误'}"
-                await msg.update()
+    try:
+        async with cl.Step(name=f'识别问题：{label}', type='tool') as step:
+            step.input = text
+            step.output = '正在处理'
+
+        if intent == 'plan':
+            sym = symbol or 'BTCUSDT'
+            status.content = f'正在生成 **{sym}** 方案…'
+            await status.update()
+            tid = await cl.make_async(chat.run_plan)(sym, cfg)
+            started = time.time()
+            while True:
+                await asyncio.sleep(2)
+                stt = tasks.status(tid)
+                state = stt.get('状态')
+                if state in ('排队中', '运行中'):
+                    status.content = (
+                        f"正在生成 **{sym}** 方案…\n\n"
+                        f"进度：{stt.get('进度') or '启动中'}\n\n"
+                        f"已运行：{int(time.time() - started)} 秒"
+                    )
+                    await status.update()
+                    continue
+                if state == '失败':
+                    status.content = f"方案生成失败：{stt.get('错误') or '未知错误'}"
+                    await status.update()
+                    return
+                loaded = tasks.load_result(tid) or {}
+                status.content = _plan_md(loaded.get('方案'))
+                await status.update()
                 return
-            loaded = tasks.load_result(tid) or {}
-            msg.content = _plan_md(loaded.get('方案'))
-            await msg.update()
-            return
 
-    with cl.Step(name=f'执行：{label}', type='tool') as step:
-        step.input = text
-        _, result = await cl.make_async(chat.dispatch)(text, cfg)
-        step.output = '完成'
+        async with cl.Step(name='正在调用数据工具', type='tool') as step:
+            step.input = text
+            _, result = await cl.make_async(chat.dispatch)(
+                text, cfg, allow_llm=True)
+            step.output = '完成'
 
-    await cl.Message(content=_result_md(intent, result)).send()
+        status.content = _result_md(intent, result)
+        await status.update()
+    except Exception as e:
+        status.content = f'处理失败：`{type(e).__name__}: {e}`'
+        await status.update()
 
 
 @cl.on_chat_start
@@ -242,6 +274,13 @@ async def on_chat_start():
         ),
         actions=_actions(),
     ).send()
+
+
+@cl.on_message
+async def on_message(message: cl.Message):
+    text = (message.content or '').strip()
+    if text:
+        await _handle_prompt(text)
 
 
 @cl.action_callback('quick_action')

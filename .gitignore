@@ -34,4 +34,5 @@ build/
 # Chainlit 运行期文件
 .files/
 .chainlit/.langchain.db
-.chainlit/translations/
+**/.chainlit/translations/
+**/.files/
