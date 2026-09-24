@@ -230,6 +230,18 @@ Windows 上也可以直接双击工作区根目录的 **`启动合约交易助�
 
 Chainlit 原型也可以直接双击 **`启动Chainlit原型.bat`**，它会自动打开 `http://localhost:8502`。
 
+### 建立公开新闻 RAG
+
+RAG 只使用公开新闻数据，不读取个人交易记录或持仓。
+
+```bash
+# 下载公开 Cryptopanic 数据集，取最近 5000 条，并叠加实时 RSS
+python rag_import.py --source both --limit 5000
+```
+
+向量化在本机运行，默认使用多语言模型 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`。索引文件保存在 `data/RAG_新闻/`，不会提交到 Git。
+
+
 ### 想后台一直盯盘？
 
 ```bash

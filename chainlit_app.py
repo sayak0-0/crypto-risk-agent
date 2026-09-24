@@ -8,6 +8,7 @@ import chainlit as cl
 import chat
 import llm
 import plan
+import rag
 import tasks
 from common import load_config
 
@@ -165,9 +166,9 @@ def _self_info_md():
         '',
         '### RAG 情况',
         '',
-        '当前**没有 RAG，没有向量数据库，也没有文档知识库检索**。',
-        '普通问答时，代码只把当前币种行情事实和用户问题一起发给模型；',
-        '模型本身有通用知识，现在允许它在标注不确定性后给出条件化方向判断。',
+        (lambda st: (f"当前已启用本地公开新闻 RAG，索引 {st.get('文档数', 0)} 条。" if st.get('就绪') else '当前还没有建立公开新闻 RAG 索引。'))(rag.status()),
+        '普通问答时，代码会把当前行情事实和检索到的公开新闻一起发给模型；',
+        'RAG 只索引公开新闻，不读取你的交易记录、持仓或盈亏。',
     ])
 
 
@@ -296,13 +297,25 @@ async def _handle_prompt(text):
                 await status.update()
                 return
 
+        rag_docs = []
+        rag_context = ''
+        if rag.is_ready() and intent not in ('plan', 'quote', 'dashboard', 'review'):
+            rag_docs = await cl.make_async(rag.search)(
+                text, top_k=5, symbols=[symbol] if symbol else None)
+            rag_context = rag.format_context(rag_docs)
+
         async with cl.Step(name='正在调用数据工具', type='tool') as step:
             step.input = text
             _, result = await cl.make_async(chat.dispatch)(
-                text, cfg, allow_llm=True)
-            step.output = '完成'
+                text, cfg, allow_llm=True, extra_context=rag_context)
+            step.output = f'完成，使用 {len(rag_docs)} 条公开资料' if rag_docs else '完成'
 
-        status.content = _result_md(intent, result)
+        content = _result_md(intent, result)
+        if rag_docs and intent not in ('plan', 'quote', 'dashboard', 'review'):
+            sources = rag.format_sources(rag_docs)
+            if sources:
+                content += '\n\n---\n**本次检索到的公开资料**\n\n' + sources
+        status.content = content
         await status.update()
     except Exception as e:
         status.content = f'处理失败：`{type(e).__name__}: {e}`'

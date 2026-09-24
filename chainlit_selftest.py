@@ -33,7 +33,7 @@ def test_self_info():
     assert not app.is_self_question('BTC 现价多少')
     text = app._self_info_md()
     assert app.llm.model_name('analyst') in text
-    assert '没有 RAG' in text
+    assert 'RAG' in text and '公开新闻' in text
     assert '行情' in text
 
 

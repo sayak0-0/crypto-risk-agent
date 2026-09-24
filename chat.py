@@ -192,7 +192,7 @@ def run_plan(symbol, cfg=None, use_debate=True, force_dir=None):
                               use_debate=use_debate, force_dir=force_dir)
 
 
-def run_chat(text, symbol=None, allow_llm=False):
+def run_chat(text, symbol=None, allow_llm=False, extra_context=None):
     """开放问题：结合实时事实回答，可以给条件化方向判断。"""
     lines = []
     sym = symbol or 'BTCUSDT'
@@ -223,11 +223,16 @@ def run_chat(text, symbol=None, allow_llm=False):
         try:
             import llm
             facts = '\n'.join(lines)
+            evidence = ''
+            if extra_context:
+                evidence = ('\n\n检索到的公开资料（只在与问题相关时使用，'
+                            '引用时标注编号）：\n' + str(extra_context))
             answer, _usage, _model = llm.chat(
                 '你是加密货币合约交易助手，可以回答一般常识、概念解释、自身功能和交易方向问题。'
                 '涉及实时行情时只能使用给定事实，不得编造价格。允许给出偏多、偏空或震荡方向倾向，但必须标明这是模型判断，不是确定预测。'
                 '方向类回答要包含结论、置信度（低/中/高）、依据、触发条件、失效条件和主要风险；不承诺收益。回答要短、直接。',
-                f'用户问题：{text}\n\n可参考的实时事实（仅在与问题相关时使用）：\n{facts}',
+                f'用户问题：{text}\n\n可参考的实时事实（仅在与问题相关时使用）：\n{facts}'
+                + evidence,
                 model=llm.model_name('analyst'),
                 temperature=0.2, max_tokens=700)
             return {'类型': '对话', '内容': answer}
@@ -247,7 +252,7 @@ def run_chat(text, symbol=None, allow_llm=False):
     return {'类型': '对话', '内容': '\n'.join(lines)}
 
 
-def dispatch(text, cfg=None, allow_llm=False):
+def dispatch(text, cfg=None, allow_llm=False, extra_context=None):
     """把一句话分发到对应功能。返回 (意图, 结果)。"""
     intent, sym = classify(text)
     if intent == 'plan':
@@ -267,7 +272,7 @@ def dispatch(text, cfg=None, allow_llm=False):
         return intent, run_dashboard()
     if intent == 'quote':
         return intent, run_quote(sym)
-    return 'chat', run_chat(text, sym, allow_llm=allow_llm)
+    return 'chat', run_chat(text, sym, allow_llm=allow_llm, extra_context=extra_context)
 
 
 def quick_actions():

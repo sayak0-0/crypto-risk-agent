@@ -36,3 +36,4 @@ build/
 .chainlit/.langchain.db
 **/.chainlit/translations/
 **/.files/
+data/RAG_新闻/
