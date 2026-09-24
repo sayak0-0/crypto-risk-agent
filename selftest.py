@@ -2992,6 +2992,7 @@ def t_chat_classify():
         ('特朗普讲话对币圈有什么影响', 'news'),
         ('适合开仓的币种', 'pick'),
         ('解释一下什么是资金费率', 'chat'),
+        ('和你对话用的什么模型', 'chat'),
     ]
     for text, want in cases:
         intent, sym = chat.classify(text)

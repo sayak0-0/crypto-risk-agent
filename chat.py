@@ -224,10 +224,10 @@ def run_chat(text, symbol=None, allow_llm=False):
             import llm
             facts = '\n'.join(lines)
             answer, _usage, _model = llm.chat(
-                '你是加密货币合约的风险助手。只根据用户提供的事实回答，'
-                '不预测涨跌，不承诺收益。回答要短、直接、可执行；'
-                '如果信息不足，就明确说信息不足。',
-                f'用户问题：{text}\n\n可用事实：\n{facts}',
+                '你是加密货币合约交易助手，也可以回答一般常识、概念解释和自身功能问题。'
+                '涉及实时行情时，只能使用给定事实，不得编造价格；不预测涨跌，不承诺收益。'
+                '问题不依赖实时数据时，可以使用通用知识直接回答。回答要短、直接。',
+                f'用户问题：{text}\n\n可参考的实时事实（仅在与问题相关时使用）：\n{facts}',
                 model=llm.model_name('analyst'),
                 temperature=0.2, max_tokens=700)
             return {'类型': '对话', '内容': answer}

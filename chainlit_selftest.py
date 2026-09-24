@@ -27,6 +27,16 @@ def test_pick_intent_and_render():
     assert 'BTCUSDT' in text and '成交额第 1 名' in text
 
 
+def test_self_info():
+    assert app.is_self_question('和你对话用的什么模型')
+    assert app.is_self_question('你的 RAG 里有什么')
+    assert not app.is_self_question('BTC 现价多少')
+    text = app._self_info_md()
+    assert app.llm.model_name('analyst') in text
+    assert '没有 RAG' in text
+    assert '行情' in text
+
+
 def test_quote():
     text = app._quote_md({
         '币种': 'BTCUSDT',
@@ -92,7 +102,7 @@ def test_result_dispatch():
 
 
 if __name__ == '__main__':
-    tests = [test_actions, test_pick_intent_and_render, test_quote, test_single_plan,
+    tests = [test_actions, test_pick_intent_and_render, test_self_info, test_quote, test_single_plan,
              test_both_plan, test_result_dispatch]
     for fn in tests:
         fn()

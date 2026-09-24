@@ -6,6 +6,7 @@ import time
 import chainlit as cl
 
 import chat
+import llm
 import plan
 import tasks
 from common import load_config
@@ -131,6 +132,45 @@ def _dashboard_md(res):
     ])
 
 
+def is_self_question(text):
+    return bool(__import__('re').search(
+        r'(你.*模型|什么模型|用的什么模型|你怎么工作|你.*RAG|RAG.*什么|'
+        r'知识库|数据来源|你会什么|你是谁|你怎么知道)',
+        text or '', __import__('re').I))
+
+
+def _self_info_md():
+    """回答关于助手自身配置的问题，不让模型猜。"""
+    try:
+        qa_model = llm.model_name('analyst')
+        default_model = llm.model_name()
+        chair_model = llm.model_name('chair')
+        planner_model = llm.model_name('planner')
+    except Exception:
+        qa_model = default_model = chair_model = planner_model = '读取失败'
+    return '\n'.join([
+        '### 当前配置',
+        '',
+        f'- 普通问答/解释：**{qa_model}**',
+        f'- 默认模型：**{default_model}**',
+        f'- 方案主持人：**{chair_model}**',
+        f'- 方案官：**{planner_model}**',
+        '- 模型服务商：SiliconFlow（OpenAI 兼容接口）',
+        '',
+        '### 数据来源',
+        '',
+        '- 行情：币安 / OKX / Bybit 公开接口',
+        '- 新闻：项目配置的公开 RSS 源',
+        '- 个人数据：本机交易记录、持仓和风控设置',
+        '',
+        '### RAG 情况',
+        '',
+        '当前**没有 RAG，没有向量数据库，也没有文档知识库检索**。',
+        '普通问答时，代码只把当前币种行情事实和用户问题一起发给模型；',
+        '模型本身有通用知识，但之前被提示词限制成“只能根据行情事实回答”，所以问它自身配置时会说信息不足。',
+    ])
+
+
 def _pick_md(res):
     if res.get('错误'):
         return f"筛选失败：{res['错误']}"
@@ -220,6 +260,11 @@ async def _handle_prompt(text):
     await status.send()
 
     try:
+        if is_self_question(text):
+            status.content = _self_info_md()
+            await status.update()
+            return
+
         async with cl.Step(name=f'识别问题：{label}', type='tool') as step:
             step.input = text
             step.output = '正在处理'
