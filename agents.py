@@ -571,12 +571,25 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
             context=context)
     if debate_text:
         chair_user += DEBATE_CHAIR_ADDON.format(debate=debate_text)
-    chair_text, chair_usage, used_model = call_llm(
-        '你是严谨的金融市场分析主持人，负责汇总多位分析师和一场多空辩论。',
-        chair_user,
-        model, api_key, role='chair',
-        temperature=0.3 if chair_mode == 'compact' else 0.4,
-        max_tokens=700 if chair_mode == 'compact' else 1100)
+    chair_system = '你是严谨的金融市场分析主持人，负责汇总多位分析师和一场多空辩论。'
+    prog('第二轮辩论完成，主持人正在汇总……')
+    try:
+        chair_text, chair_usage, used_model = call_llm(
+            chair_system, chair_user, model, api_key, role='chair',
+            timeout=300,
+            temperature=0.3 if chair_mode == 'compact' else 0.4,
+            max_tokens=700 if chair_mode == 'compact' else 1100)
+    except Exception as first_error:
+        # 主持人超时不能拖垮整张方案：自动换更快的分析模型重试一次。
+        prog('主持人响应超时，正在切换备用模型……')
+        try:
+            chair_text, chair_usage, used_model = call_llm(
+                chair_system, chair_user, llm.model_name('analyst'), api_key,
+                role='analyst', timeout=180,
+                temperature=0.3,
+                max_tokens=700 if chair_mode == 'compact' else 900)
+        except Exception:
+            raise first_error
     chair = _extract_json(chair_text) or {
         '方向': '无法判断', '信心': 0, '共识': '', '分歧': '',
         '综合判断': '模型输出解析失败', '最重要的反面证据': '',
