@@ -62,6 +62,7 @@ def add_plan(plan):
         '浮动盈亏': None,
         '保证金收益率': None,
         '状态': '等待首检',
+        '行情状态': '等待',
         '已平仓': False,
     }
     rows = _load()
@@ -93,8 +94,12 @@ def observe(record, force_daily=False):
         snap = market.snapshot(record['币种'], '自动')
         price = float(snap['标记价'])
     except Exception as e:
-        record['状态'] = f'行情失败:{type(e).__name__}'
+        # 单次网络失败不能覆盖上次成功的盈亏，只标记行情暂时不可用。
+        record['行情状态'] = '暂不可用'
+        record['行情错误'] = type(e).__name__
         record['最后检查'] = _now()
+        if record.get('当前价') is None:
+            record['状态'] = '等待行情'
         return record
     sign = 1 if record.get('方向') == 'long' else -1
     qty = float(record.get('数量') or 0)
@@ -123,6 +128,7 @@ def observe(record, force_daily=False):
         '保证金收益率': round(roi, 4),
         '状态': state,
         '最后检查': _now(),
+        '行情状态': '正常',
     })
     if force_daily or _daily_due(record):
         record['最后日检'] = _now()

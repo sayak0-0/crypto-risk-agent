@@ -27,7 +27,7 @@
       panel.innerHTML = '<div class="pw-title">持仓观察 · 24小时</div>' + rows.map(x => {
         const pnl = Number(x['浮动盈亏'] || 0), roi = Number(x['保证金收益率'] || 0);
         const cls = pnl > 0 ? 'pw-up' : pnl < 0 ? 'pw-down' : '';
-        return `<div class="pw-item"><div class="pw-head"><b>${esc(x['币种'])} ${esc(x['方向中文'])} ${esc(x['杠杆'])}x</b><span class="${cls}">${pnl>=0?'+':''}${pnl.toFixed(4)} U</span></div><div class="pw-meta">入场 ${esc(x['入场价'])} · 现价 ${esc(x['当前价'] ?? '等待')} · ${roi>=0?'+':''}${roi.toFixed(2)}%</div><div class="pw-meta">${esc(x['状态'])} · 下次 ${esc(String(x['下次检查']||'').slice(0,16))}</div></div>`;
+        return `<div class="pw-item"><div class="pw-head"><b>${esc(x['币种'])} ${esc(x['方向中文'])} ${esc(x['杠杆'])}x</b><span class="${cls}">${pnl>=0?'+':''}${pnl.toFixed(4)} U</span></div><div class="pw-meta">入场 ${esc(x['入场价'])} · 现价 ${esc(x['当前价'] ?? '等待')} · ${roi>=0?'+':''}${roi.toFixed(2)}%</div><div class="pw-meta">${esc(x['状态'])} · 行情${esc(x['行情状态']||'正常')} · 下次 ${esc(String(x['下次检查']||'').slice(0,16))}</div></div>`;
       }).join('');
     } catch (_) {}
   }
