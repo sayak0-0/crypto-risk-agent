@@ -506,7 +506,9 @@ async def _handle_prompt(text):
                 status.content = content
                 if plan_result.get('可执行') and not plan_result.get('双向'):
                     status.actions = [
-                        cl.Action(name='mark_opened', label='已开仓，加入24小时观察',
+                        cl.Action(name='mark_opened', label='已开仓，真实对账',
+                                  payload={'plan': plan_result}),
+                        cl.Action(name='mark_paper', label='测试观察（不查币安）',
                                   payload={'plan': plan_result}),
                         cl.Action(name='mark_not_opened', label='暂未开仓',
                                   payload={}),
@@ -579,6 +581,18 @@ async def on_quick_action(action: cl.Action):
     prompt = (action.payload or {}).get('prompt')
     if prompt:
         await _handle_prompt(prompt)
+
+
+@cl.action_callback('mark_paper')
+async def on_mark_paper(action: cl.Action):
+    try:
+        rec = await cl.make_async(position_watch.add_plan)(
+            (action.payload or {}).get('plan') or {}, paper=True)
+        await cl.Message(
+            content=(f"已加入测试观察：**{rec['币种']} {rec['方向中文']}**\n\n"
+                     "该记录使用方案假设值，不代表真实币安持仓。") ).send()
+    except Exception as e:
+        await cl.Message(content=f'加入测试观察失败：{e}').send()
 
 
 @cl.action_callback('mark_opened')

@@ -74,12 +74,24 @@ def reconcile_plan(plan):
     }
 
 
-def add_plan(plan):
+def add_plan(plan, paper=False):
     if not plan or not plan.get('可执行') or plan.get('双向'):
         raise ValueError('只能观察已经生成的可执行单方向方案')
-    actual = reconcile_plan(plan)
-    if not actual.get('对账成功'):
-        raise ValueError(actual.get('原因') or '无法与币安实际持仓对账')
+    if paper:
+        symbol = market.normalize_symbol(plan.get('标的'))
+        direction = 'long' if plan.get('方向') == '做多' else 'short'
+        pos = plan.get('仓位') or {}
+        actual = {
+            '币种': symbol, '方向': direction, '方向中文': plan.get('方向'),
+            '入场价': _f(plan.get('入场价')), '止损价': _f(plan.get('止损价')),
+            '止盈价': _f(plan.get('止盈价')), '杠杆': _f(plan.get('杠杆'), 1),
+            '数量': abs(_f(pos.get('建议数量'))), '保证金': _f(pos.get('占用保证金')),
+            '对账时间': _now(),
+        }
+    else:
+        actual = reconcile_plan(plan)
+        if not actual.get('对账成功'):
+            raise ValueError(actual.get('原因') or '无法与币安实际持仓对账')
     symbol = actual['币种']
     direction = actual['方向']
     record = {
@@ -93,10 +105,11 @@ def add_plan(plan):
         '杠杆': actual['杠杆'],
         '数量': actual['数量'],
         '保证金': actual['保证金'],
-        '持仓校验': '已与币安对账',
-        '交易所止损单': actual['交易所止损单'],
-        '交易所止盈单': actual['交易所止盈单'],
-        '挂单警告': actual['挂单警告'],
+        '观察模式': '测试' if paper else '实盘',
+        '持仓校验': '测试模式，不查币安' if paper else '已与币安对账',
+        '交易所止损单': actual.get('交易所止损单', False),
+        '交易所止盈单': actual.get('交易所止盈单', False),
+        '挂单警告': actual.get('挂单警告', ''),
         '最后对账': actual['对账时间'],
         '开仓时间': _now(),
         '最后检查': '',
@@ -158,7 +171,7 @@ def reconcile_record(record):
 def observe(record, force_daily=False):
     if record.get('已平仓'):
         return record
-    if not reconcile_record(record):
+    if record.get('观察模式') != '测试' and not reconcile_record(record):
         return record
     try:
         snap = market.snapshot(record['币种'], '自动')
@@ -227,6 +240,18 @@ def close_watch(watch_id):
             row['状态'] = '已结束观察'
             break
     _save(rows)
+    return rows
+
+
+def activate_legacy_tests():
+    """恢复旧的方案假设记录为测试观察，不冒充真实仓位。"""
+    rows = _load(); changed = False
+    for row in rows:
+        if row.get('状态') == '币安已无持仓':
+            row.update({'观察模式': '测试', '持仓校验': '测试模式，不查币安',
+                        '已平仓': False, '状态': '等待首检', '行情状态': '等待'})
+            changed = True
+    if changed: _save(rows)
     return rows
 
 
