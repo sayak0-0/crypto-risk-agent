@@ -67,6 +67,22 @@ def update_outcomes():
     return rows, updated
 
 
+def accuracy_by_regime(rows=None, horizon=24):
+    rows = _load() if rows is None else rows
+    groups = {}
+    for r in rows:
+        state = r.get('市场状态') or '未知'
+        ok = (r.get('是否正确') or {}).get(str(horizon))
+        if ok is None:
+            continue
+        g = groups.setdefault(state, {'样本': 0, '正确': 0})
+        g['样本'] += 1
+        g['正确'] += 1 if ok else 0
+    for g in groups.values():
+        g['准确率'] = round(g['正确'] / g['样本'] * 100, 1) if g['样本'] else None
+    return groups
+
+
 def summary(rows=None):
     rows = _load() if rows is None else rows
     out = {}

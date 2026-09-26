@@ -517,9 +517,17 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
                     total_usage[k] = total_usage.get(k, 0) + v
 
     prog('主持人正在汇总……')
-    condensed = [{'分析师': r['_名称'], '方向': r.get('方向'), '信心': r.get('信心'),
-                  '核心理由': r.get('核心理由'), '主要风险': r.get('主要风险'),
-                  '什么情况下我错了': r.get('什么情况下我错了')} for r in results]
+    weights = regime_mod.weight_hint(market_regime.get('状态'))
+    condensed = []
+    for r in results:
+        w = float(weights.get(r.get('_名称'), 1.0))
+        try: weighted_conf = round(float(r.get('信心') or 0) * w, 1)
+        except Exception: weighted_conf = 0
+        condensed.append({'分析师': r['_名称'], '方向': r.get('方向'),
+                          '信心': r.get('信心'), '状态权重': w,
+                          '加权信心': weighted_conf,
+                          '核心理由': r.get('核心理由'), '主要风险': r.get('主要风险'),
+                          '什么情况下我错了': r.get('什么情况下我错了')})
     # ⚠️ 这些是主持人用来「核对辩论里数字」的基准，必须带单位，
     # 否则它会像之前那样把 0.002746 读成 0.2746%
     context = json.dumps(_clean({
