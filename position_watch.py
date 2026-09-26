@@ -48,13 +48,13 @@ def reconcile_plan(plan):
     """用币安实际持仓和挂单覆盖方案假设值。"""
     symbol = market.normalize_symbol(plan.get('标的'))
     want = '多' if plan.get('方向') == '做多' else '空'
-    positions = exchange_sync.binance_positions()
+    positions = exchange_sync.positions()
     pos = next((x for x in positions if x.get('币种') == symbol), None)
     if not pos:
-        return {'对账成功': False, '原因': f'币安未检测到 {symbol} 的实际持仓'}
+        return {'对账成功': False, '原因': f'当前交易所未检测到 {symbol} 的实际持仓'}
     if pos.get('方向') != want:
-        return {'对账成功': False, '原因': f'币安实际方向是{pos.get("方向")}，方案方向是{want}'}
-    orders = exchange_sync.binance_open_orders(symbol)
+        return {'对账成功': False, '原因': f'实际方向是{pos.get("方向")}，方案方向是{want}'}
+    orders = exchange_sync.open_orders(symbol=symbol)
     stop = target = None
     for o in orders:
         typ = str(o.get('类型') or '')
@@ -154,13 +154,13 @@ def _reconcile_due(record, minutes=15):
 def reconcile_record(record):
     if not _reconcile_due(record): return True
     try:
-        positions = exchange_sync.binance_positions()
+        positions = exchange_sync.positions()
     except Exception as e:
         record['对账状态'] = f'查询失败:{type(e).__name__}'
         return True
     pos = next((x for x in positions if x.get('币种') == record.get('币种')), None)
     if not pos:
-        record.update({'已平仓': True, '状态': '币安已无持仓', '行情状态': '暂停'})
+        record.update({'已平仓': True, '状态': '当前交易所已无持仓', '行情状态': '暂停'})
         return False
     record.update({'数量': abs(_f(pos.get('数量'))), '入场价': _f(pos.get('开仓价')),
                    '杠杆': _f(pos.get('杠杆'), 1), '保证金': _f(pos.get('保证金')),

@@ -380,6 +380,61 @@ def okx_positions(api_key=None, api_secret=None, passphrase=None):
 
 # ---------------- Bybit ----------------
 
+def _bybit_signed_get(path, params='', api_key=None, api_secret=None):
+    api_key = api_key or get_env('BYBIT_API_KEY')
+    api_secret = api_secret or get_env('BYBIT_API_SECRET')
+    if not api_key or not api_secret:
+        raise RuntimeError('没有配置 BYBIT_API_KEY / BYBIT_API_SECRET')
+    ts, recv = str(int(time.time()*1000)), '5000'
+    sign = _hmac_hex(api_secret, ts + api_key + recv + params)
+    r = requests.get(f'https://api.bybit.com{path}' + (f'?{params}' if params else ''),
+                     headers={'X-BAPI-API-KEY': api_key, 'X-BAPI-TIMESTAMP': ts,
+                              'X-BAPI-SIGN': sign, 'X-BAPI-RECV-WINDOW': recv, **UA},
+                     timeout=TIMEOUT, proxies=get_proxy())
+    return _json_or_error(r, 'Bybit')
+
+
+def bybit_account(api_key=None, api_secret=None):
+    body = _bybit_signed_get('/v5/account/wallet-balance', 'accountType=UNIFIED', api_key, api_secret)
+    rows = (body.get('result') or {}).get('list') or []
+    usdt = next((x for r in rows for x in (r.get('coin') or []) if x.get('coin') == 'USDT'), {})
+    return {'交易所':'Bybit', '钱包余额':_num(usdt.get('walletBalance')),
+            '保证金余额':_num(usdt.get('equity')), '可用余额':_num(usdt.get('availableToWithdraw') or usdt.get('availableBalance')),
+            '未实现盈亏':_num(usdt.get('unrealisedPnl')), '资产':[usdt]}
+
+
+def bybit_open_orders(symbol=None, api_key=None, api_secret=None):
+    qs = 'category=linear&settleCoin=USDT&limit=200' + (f'&symbol={symbol}' if symbol else '')
+    body = _bybit_signed_get('/v5/order/realtime', qs, api_key, api_secret)
+    items = (body.get('result') or {}).get('list') or []
+    return [{'订单ID':o.get('orderId'),'币种':o.get('symbol'),'买卖':o.get('side'),
+             '类型':o.get('stopOrderType') or o.get('orderType'),'状态':o.get('orderStatus'),
+             '价格':_num(o.get('price')),'触发价':_num(o.get('triggerPrice')),
+             '数量':_num(o.get('qty')),'已成交':_num(o.get('cumExecQty')),
+             '只减仓':bool(o.get('reduceOnly')),'全平仓单':bool(o.get('closeOnTrigger'))} for o in items]
+
+
+def active_exchange():
+    v = (get_env('ACTIVE_EXCHANGE') or '').strip()
+    if v: return 'Bybit' if v.lower() in ('bybit','by') else '币安' if v.lower() in ('binance','bn') else v
+    return 'Bybit' if get_env('BYBIT_API_KEY') and get_env('BYBIT_API_SECRET') else '币安'
+
+
+def account_summary():
+    ex = active_exchange()
+    return bybit_account() if ex == 'Bybit' else binance_account()
+
+
+def open_orders(exchange=None, symbol=None):
+    ex = exchange or active_exchange()
+    return bybit_open_orders(symbol) if ex == 'Bybit' else binance_open_orders(symbol)
+
+
+def positions():
+    ex = active_exchange()
+    return bybit_positions() if ex == 'Bybit' else binance_positions()
+
+
 def bybit_positions(api_key=None, api_secret=None):
     api_key = api_key or get_env('BYBIT_API_KEY')
     api_secret = api_secret or get_env('BYBIT_API_SECRET')

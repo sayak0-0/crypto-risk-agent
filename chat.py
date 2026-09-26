@@ -100,7 +100,8 @@ def run_account():
     """读取币安余额、持仓和未成交订单。只读，不下单。"""
     import exchange_sync
     try:
-        data = exchange_sync.binance_summary()
+        data = {'账户': exchange_sync.account_summary(), '持仓': exchange_sync.positions(),
+                '挂单': exchange_sync.open_orders()}
         return {'类型': '账户', **data}
     except Exception as e:
         return {'类型': '账户', '错误': str(e)}
@@ -110,8 +111,8 @@ def run_orders():
     """读取币安当前挂单和止盈止损条件单。"""
     import exchange_sync
     try:
-        return {'类型': '订单', '挂单': exchange_sync.binance_open_orders(),
-                '持仓': exchange_sync.binance_positions()}
+        return {'类型': '订单', '挂单': exchange_sync.open_orders(),
+                '持仓': exchange_sync.positions()}
     except Exception as e:
         return {'类型': '订单', '错误': str(e)}
 
@@ -239,7 +240,7 @@ def run_plan(symbol, cfg=None, use_debate=True, force_dir=None):
     cfg = dict(cfg or {})
     equity = cfg.get('本金', 1000.0)
     try:
-        account = exchange_sync.binance_account()
+        account = exchange_sync.account_summary()
         live = float(account.get('保证金余额') or account.get('钱包余额') or 0)
         if live > 0:
             equity = live
