@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 import market
+import regime as regime_mod
 from common import DATA_DIR, get_env
 import llm
 
@@ -423,6 +424,7 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
     prog('正在读取衍生品时间序列和公开新闻证据……')
     snap['衍生品趋势'] = market.derivatives_trend(symbol)
     snap['_新闻证据'] = extra_context or ''
+    market_regime = regime_mod.classify(snap, ind, snap['衍生品趋势'], extra_context or '')
     active_analysts = list(ANALYSTS) + ([NEWS_ANALYST] if extra_context else [])
 
     def run_one(pair):
@@ -518,6 +520,8 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         '基差百分比': _t((snap.get('衍生品趋势') or {}).get('基差百分比'), 4, '%'),
         '主动买卖比': _t((snap.get('衍生品趋势') or {}).get('主动买卖比_当前'), 3),
         '公开新闻证据': (extra_context or '无')[:3000],
+        '市场状态': market_regime,
+        '市场状态权重提示': regime_mod.weight_hint(market_regime.get('状态')),
     }), ensure_ascii=False, indent=1)
 
     debate_result = None
@@ -646,6 +650,7 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         '分析师': _clean(results),
         '主持人': _clean(chair),
         '衍生品趋势': _clean(snap.get('衍生品趋势') or {}),
+        '市场状态': _clean(market_regime),
         '新闻证据': extra_context or '',
         '用量': total_usage,
         '模型': used_model,

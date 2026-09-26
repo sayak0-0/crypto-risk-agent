@@ -39,3 +39,4 @@ build/
 data/RAG_新闻/
 data/开仓观察.json
 public/positions.json
+data/决策记录.json

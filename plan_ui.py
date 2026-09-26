@@ -12,6 +12,7 @@ import agents
 import llm
 import plan as plan_mod
 import tasks
+import decision_log
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -46,6 +47,7 @@ def _run_plan(symbol, exchange, equity, risk_pct, leverage, use_debate,
         mmr=float(cfg.get('维持保证金率', 0.005)),
         min_rr=float(cfg.get('最低盈亏比', 1.5)),
         user_forced=bool(force_dir))
+    decision_log.record(symbol, analysis, res, analysis.get('市场状态'))
     progress('完成')
     return {'方案': res, '分析': analysis}
 

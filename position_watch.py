@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import market
+import decision_log
 from common import DATA_DIR
 
 WATCH_PATH = Path(DATA_DIR) / '开仓观察.json'
@@ -142,6 +143,10 @@ def update_all(force=False, due_hours=DUE_HOURS):
         force_daily = force or _daily_due(row, due_hours)
         observe(row, force_daily=force_daily)
     _save(rows)
+    try:
+        decision_log.update_outcomes()
+    except Exception:
+        pass
     return rows
 
 
