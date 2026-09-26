@@ -17,6 +17,7 @@ import pandas as pd
 import agents
 import chat
 import exchange_sync
+import flow_data
 import journal
 import llm
 import market
@@ -1113,6 +1114,7 @@ DERIV_TREND = {'持仓量_1小时变化': 1.2, '持仓量_4小时变化': 2.5,
 SNAP_MA['衍生品趋势'] = DERIV_TREND
 # 多智能体测试不能真的请求币安时间序列接口；保持确定性。
 market.derivatives_trend = lambda symbol: dict(DERIV_TREND)
+flow_data.context = lambda symbol: {}
 
 def _brief_of(name):
     for a in agents.ANALYSTS:

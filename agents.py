@@ -26,6 +26,7 @@ import pandas as pd
 
 import market
 import regime as regime_mod
+import flow_data
 from common import DATA_DIR, get_env
 import llm
 
@@ -139,6 +140,14 @@ NEWS_ANALYST = {
         '公开新闻证据': s.get('_新闻证据') or '本次没有检索到相关公开新闻',
         '要求': '判断新闻对波动和风险的影响，不预测具体价格。',
     },
+}
+
+
+FLOW_ANALYST = {
+    '名称': '订单流/爆仓分析师',
+    'system': ('你只分析订单流、爆仓、盘口失衡和危险仓位。'
+               '不预测具体价格，判断资金压力和多空挤压风险。'),
+    'brief': lambda s, i: {'币种': s.get('币种'), '订单流与爆仓': s.get('_flow') or '无数据'},
 }
 
 
@@ -425,7 +434,13 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
     snap['衍生品趋势'] = market.derivatives_trend(symbol)
     snap['_新闻证据'] = extra_context or ''
     market_regime = regime_mod.classify(snap, ind, snap['衍生品趋势'], extra_context or '')
-    active_analysts = list(ANALYSTS) + ([NEWS_ANALYST] if extra_context else [])
+    flow = flow_data.context(symbol)
+    snap['_flow'] = flow
+    active_analysts = list(ANALYSTS)
+    if extra_context:
+        active_analysts.append(NEWS_ANALYST)
+    if flow and not flow.get('订单流错误') and not flow.get('爆仓错误'):
+        active_analysts.append(FLOW_ANALYST)
 
     def run_one(pair):
         idx, a = pair
@@ -521,6 +536,7 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         '主动买卖比': _t((snap.get('衍生品趋势') or {}).get('主动买卖比_当前'), 3),
         '公开新闻证据': (extra_context or '无')[:3000],
         '市场状态': market_regime,
+        '订单流与爆仓': flow,
         '市场状态权重提示': regime_mod.weight_hint(market_regime.get('状态')),
     }), ensure_ascii=False, indent=1)
 
@@ -651,6 +667,7 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         '主持人': _clean(chair),
         '衍生品趋势': _clean(snap.get('衍生品趋势') or {}),
         '市场状态': _clean(market_regime),
+        '订单流与爆仓': _clean(flow),
         '新闻证据': extra_context or '',
         '用量': total_usage,
         '模型': used_model,
