@@ -416,14 +416,21 @@ async def _handle_prompt(text):
         effective_text = decision.get('normalized_text') or raw_text
         resolved_symbol = decision.get('symbol')
         cl.user_session.set('last_excludes', decision.get('exclude_symbols') or [])
+        direct_action = decision.get('action')
     else:
         effective_text, resolved_symbol = _resolve_reference(raw_text)
         cl.user_session.set('last_excludes', [])
+        direct_action = None
 
     _remember('user', raw_text)
     cfg = load_config()
-    intent, symbol = chat.classify(effective_text)
-    symbol = symbol or resolved_symbol
+    if direct_action:
+        # 控制器直接给动作，不再让关键词分类二次改写用户意图。
+        intent = 'pick_plan' if direct_action == 'recommend_plan' else direct_action
+        symbol = resolved_symbol or chat.find_symbol(effective_text)
+    else:
+        intent, symbol = chat.classify(effective_text)
+        symbol = symbol or resolved_symbol
     label = chat.LABELS.get(intent, '对话')
     if symbol:
         cl.user_session.set('last_symbol', symbol)
