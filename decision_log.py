@@ -79,7 +79,9 @@ def accuracy_by_regime(rows=None, horizon=24):
         g['样本'] += 1
         g['正确'] += 1 if ok else 0
     for g in groups.values():
-        g['准确率'] = round(g['正确'] / g['样本'] * 100, 1) if g['样本'] else None
+        g['可评价'] = g['样本'] >= 30
+        g['准确率'] = round(g['正确'] / g['样本'] * 100, 1) if g['样本'] >= 30 else None
+        if g['样本'] < 30: g['说明'] = '该状态样本不足，暂不评价'
     return groups
 
 
@@ -89,6 +91,8 @@ def summary(rows=None):
     for h in HORIZONS:
         vals = [r.get('是否正确', {}).get(str(h)) for r in rows]
         vals = [x for x in vals if x is not None]
-        out[str(h)] = {'样本': len(vals), '正确': sum(vals),
-                       '准确率': round(sum(vals)/len(vals)*100, 1) if vals else None}
+        n = len(vals)
+        out[str(h)] = {'样本': n, '正确': sum(vals), '可评价': n >= 100,
+                       '准确率': round(sum(vals)/n*100, 1) if n >= 100 else None,
+                       '说明': '样本不足，暂不评价' if n < 100 else '已满足最低样本门槛'}
     return out

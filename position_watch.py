@@ -9,6 +9,7 @@ from pathlib import Path
 
 import market
 import decision_log
+import exchange_sync
 from common import DATA_DIR
 
 WATCH_PATH = Path(DATA_DIR) / '开仓观察.json'
@@ -38,23 +39,65 @@ def _save(rows):
     export_public(rows)
 
 
+def _f(v, default=0.0):
+    try: return float(v)
+    except Exception: return default
+
+
+def reconcile_plan(plan):
+    """用币安实际持仓和挂单覆盖方案假设值。"""
+    symbol = market.normalize_symbol(plan.get('标的'))
+    want = '多' if plan.get('方向') == '做多' else '空'
+    positions = exchange_sync.binance_positions()
+    pos = next((x for x in positions if x.get('币种') == symbol), None)
+    if not pos:
+        return {'对账成功': False, '原因': f'币安未检测到 {symbol} 的实际持仓'}
+    if pos.get('方向') != want:
+        return {'对账成功': False, '原因': f'币安实际方向是{pos.get("方向")}，方案方向是{want}'}
+    orders = exchange_sync.binance_open_orders(symbol)
+    stop = target = None
+    for o in orders:
+        typ = str(o.get('类型') or '')
+        px = _f(o.get('触发价') or o.get('价格'))
+        if px <= 0: continue
+        if typ.startswith('STOP') or typ == 'TRAILING_STOP_MARKET': stop = px
+        if typ.startswith('TAKE_PROFIT'): target = px
+    return {
+        '对账成功': True, '币种': symbol, '方向中文': '做多' if want == '多' else '做空',
+        '方向': 'long' if want == '多' else 'short',
+        '入场价': _f(pos.get('开仓价')), '数量': abs(_f(pos.get('数量'))),
+        '杠杆': _f(pos.get('杠杆'), 1), '保证金': _f(pos.get('保证金')),
+        '止损价': stop or _f(plan.get('止损价')), '止盈价': target or _f(plan.get('止盈价')),
+        '交易所止损单': bool(stop), '交易所止盈单': bool(target),
+        '挂单警告': ('缺少交易所止损单' if not stop else '') + (('；缺少交易所止盈单' if not target else '')),
+        '对账时间': _now(),
+    }
+
+
 def add_plan(plan):
     if not plan or not plan.get('可执行') or plan.get('双向'):
         raise ValueError('只能观察已经生成的可执行单方向方案')
-    symbol = market.normalize_symbol(plan.get('标的'))
-    direction = 'long' if plan.get('方向') == '做多' else 'short'
-    pos = plan.get('仓位') or {}
+    actual = reconcile_plan(plan)
+    if not actual.get('对账成功'):
+        raise ValueError(actual.get('原因') or '无法与币安实际持仓对账')
+    symbol = actual['币种']
+    direction = actual['方向']
     record = {
         'id': uuid.uuid4().hex[:12],
         '币种': symbol,
         '方向': direction,
-        '方向中文': plan.get('方向'),
-        '入场价': float(plan.get('入场价') or 0),
-        '止损价': float(plan.get('止损价') or 0),
-        '止盈价': float(plan.get('止盈价') or 0),
-        '杠杆': float(plan.get('杠杆') or 0),
-        '数量': float(pos.get('建议数量') or 0),
-        '保证金': float(pos.get('占用保证金') or 0),
+        '方向中文': actual['方向中文'],
+        '入场价': actual['入场价'],
+        '止损价': actual['止损价'],
+        '止盈价': actual['止盈价'],
+        '杠杆': actual['杠杆'],
+        '数量': actual['数量'],
+        '保证金': actual['保证金'],
+        '持仓校验': '已与币安对账',
+        '交易所止损单': actual['交易所止损单'],
+        '交易所止盈单': actual['交易所止盈单'],
+        '挂单警告': actual['挂单警告'],
+        '最后对账': actual['对账时间'],
         '开仓时间': _now(),
         '最后检查': '',
         '最后日检': '',
@@ -88,8 +131,34 @@ def _daily_due(record, due_hours=DUE_HOURS):
         return True
 
 
+def _reconcile_due(record, minutes=15):
+    if not record.get('最后对账'): return True
+    try:
+        return datetime.now() - datetime.strptime(record['最后对账'], '%Y-%m-%d %H:%M:%S') >= timedelta(minutes=minutes)
+    except Exception: return True
+
+
+def reconcile_record(record):
+    if not _reconcile_due(record): return True
+    try:
+        positions = exchange_sync.binance_positions()
+    except Exception as e:
+        record['对账状态'] = f'查询失败:{type(e).__name__}'
+        return True
+    pos = next((x for x in positions if x.get('币种') == record.get('币种')), None)
+    if not pos:
+        record.update({'已平仓': True, '状态': '币安已无持仓', '行情状态': '暂停'})
+        return False
+    record.update({'数量': abs(_f(pos.get('数量'))), '入场价': _f(pos.get('开仓价')),
+                   '杠杆': _f(pos.get('杠杆'), 1), '保证金': _f(pos.get('保证金')),
+                   '最后对账': _now(), '对账状态': '已对账'})
+    return True
+
+
 def observe(record, force_daily=False):
     if record.get('已平仓'):
+        return record
+    if not reconcile_record(record):
         return record
     try:
         snap = market.snapshot(record['币种'], '自动')

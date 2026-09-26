@@ -497,6 +497,13 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
                           '主要风险': '', '什么情况下我错了': '',
                           '我看不到什么': ''}
                 raw = last[:500]
+        if a['名称'] == '订单流/爆仓分析师':
+            q = (flow.get('数据质量') or {}) if 'flow' in locals() else {}
+            if not q.get('可用于方向判断'):
+                parsed['方向'] = '无法判断'
+                parsed['信心'] = min(float(parsed.get('信心') or 0), 20)
+                parsed['核心理由'] = '数据质量不足，仅供风险参考：' + '；'.join(q.get('原因') or [])
+                parsed['_禁用方向票'] = True
         parsed['_名称'] = a['名称']
         parsed['_数据'] = brief
         parsed['_格式合规'] = ok
