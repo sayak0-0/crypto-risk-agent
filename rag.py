@@ -3,6 +3,9 @@
 import json
 import os
 import threading
+import email.utils
+from datetime import datetime, timezone
+import math
 from pathlib import Path
 
 import numpy as np
@@ -150,6 +153,29 @@ def status():
     return {'就绪': True, **meta}
 
 
+def _parse_time(value):
+    t = str(value or '').strip()
+    try:
+        dt = email.utils.parsedate_to_datetime(t)
+        return dt.replace(tzinfo=None)
+    except Exception:
+        pass
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S'):
+        try:
+            return datetime.strptime(t[:19], fmt)
+        except Exception:
+            pass
+    return None
+
+
+def _recency_bonus(doc):
+    dt = _parse_time(doc.get('时间'))
+    if not dt:
+        return 0.0
+    age_days = max(0.0, (datetime.now() - dt).total_seconds() / 86400)
+    return 0.2 * math.exp(-age_days / 30.0)
+
+
 def search(query, top_k=5, symbols=None):
     """向量检索。symbols 是币种集合时先按币种过滤。"""
     docs, vectors = _load_cache()
@@ -165,7 +191,8 @@ def search(query, top_k=5, symbols=None):
             ds = {str(x).upper() for x in (doc.get('币种') or [])}
             if not ds.intersection(want):
                 continue
-        pairs.append((float(score), i))
+        final_score = float(score) + _recency_bonus(doc)
+        pairs.append((final_score, i))
     pairs.sort(reverse=True)
     out = []
     for score, i in pairs[:max(1, int(top_k))]:
