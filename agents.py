@@ -145,6 +145,7 @@ NEWS_ANALYST = {
 
 FLOW_ANALYST = {
     '名称': '订单流/爆仓分析师',
+    'model': 'Qwen/Qwen3.5-122B-A10B',
     'system': ('你只分析订单流、爆仓、盘口失衡和危险仓位。'
                '不预测具体价格，判断资金压力和多空挤压风险。'
                '没有确认爆仓数据时，爆仓部分只能提示风险，不能用来判断方向。'),
@@ -447,7 +448,7 @@ def analyze_symbol(symbol, exchange='自动', model=None, api_key=None,
         idx, a = pair
         brief = a['brief'](snap, ind)
         # 每个分析师用各自配置的模型（多模型协商）
-        my_model = model or llm.analyst_model(idx)
+        my_model = model or a.get('model') or llm.analyst_model(idx)
         prog(f'{_model_short(my_model)}｜{a["名称"]}｜开始分析')
         use_compact = (prompt_mode == 'compact')
         tmpl = ANALYST_COMPACT if use_compact else ANALYST_PROMPT

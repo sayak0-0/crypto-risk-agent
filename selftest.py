@@ -1139,6 +1139,7 @@ def t_analysts_see_different_data():
         and '资金费率' not in ks(sent), '情绪面不该看到均线和费率：' + ks(sent)
     assert 'MA20' not in ks(risk), '风控官不该看均线（那会诱导他判断方向）'
     assert 'ATR占价格百分比' in risk, '风控官必须看到波动率'
+    assert agents.FLOW_ANALYST.get('model') == 'Qwen/Qwen3.5-122B-A10B'
     # 四个人的字段集合不应该完全一样
     sets = [set(x.keys()) for x in (tech, fund, sent, risk)]
     assert len({frozenset(x) for x in sets}) == 4, '四份数据切片必须各不相同'
@@ -3128,31 +3129,28 @@ def t_chat_fallback_no_prediction():
 def t_chat_account_question():
     orig = chat.exchange_sync.binance_summary if hasattr(chat, 'exchange_sync') else None
     import exchange_sync
-    old_summary = exchange_sync.binance_summary
-    exchange_sync.binance_summary = lambda: {
-        '账户': {'钱包余额': 1000, '保证金余额': 1100, '可用余额': 800},
-        '持仓': [{'币种': 'BTCUSDT', '方向': '多'}], '挂单': [],
-    }
+    old_acc, old_pos, old_ord = exchange_sync.account_summary, exchange_sync.positions, exchange_sync.open_orders
+    exchange_sync.account_summary = lambda: {'钱包余额': 1000, '保证金余额': 1100, '可用余额': 800}
+    exchange_sync.positions = lambda: [{'币种': 'BTCUSDT', '方向': '多'}]
+    exchange_sync.open_orders = lambda *a, **k: []
     try:
         intent, res = chat.dispatch('我的币安余额还剩多少')
         assert intent == 'account' and res['账户']['钱包余额'] == 1000
     finally:
-        exchange_sync.binance_summary = old_summary
+        exchange_sync.account_summary, exchange_sync.positions, exchange_sync.open_orders = old_acc, old_pos, old_ord
 
 
 def t_chat_order_question():
     import exchange_sync
-    old = exchange_sync.binance_open_orders
-    old_pos = exchange_sync.binance_positions
-    exchange_sync.binance_open_orders = lambda: [{
+    old, old_pos = exchange_sync.open_orders, exchange_sync.positions
+    exchange_sync.open_orders = lambda *a, **k: [{
         '币种': 'BTCUSDT', '类型': 'STOP_MARKET', '触发价': 80000}]
-    exchange_sync.binance_positions = lambda: []
+    exchange_sync.positions = lambda: []
     try:
         intent, res = chat.dispatch('我的止盈止损在哪里')
         assert intent == 'orders' and res['挂单'][0]['触发价'] == 80000
     finally:
-        exchange_sync.binance_open_orders = old
-        exchange_sync.binance_positions = old_pos
+        exchange_sync.open_orders, exchange_sync.positions = old, old_pos
 
 
 def t_chat_news_no_prediction():
