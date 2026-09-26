@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """HyperData Terminal 适配器：订单流、爆仓、盘口和危险仓位。"""
-import os, requests
+import os, requests, json, time
+from pathlib import Path
+from common import DATA_DIR
 
 BASE = os.getenv('HYPERDATA_URL', 'http://127.0.0.1:8420')
 
@@ -38,12 +40,24 @@ def context(symbol):
         b = _get(f'/v1/orderbook/{coin}')
         out.update({'盘口失衡': b.get('imbalance'), '买卖价差': b.get('spread')})
     except Exception as e: out['盘口错误'] = type(e).__name__
+    # 合并本地 Bybit 成交流。
+    try:
+        bf = json.loads((Path(DATA_DIR) / 'bybit_orderflow.json').read_text(encoding='utf-8'))
+        age = time.time() - (Path(DATA_DIR) / 'bybit_orderflow.json').stat().st_mtime
+        rows = bf.get('数据') or {}
+        row = rows.get(coin) or rows.get(coin + 'USDT')
+        if row and age <= 300 and bf.get('状态') == 'ok':
+            coverage['bybit'] = 'ok'
+            out['Bybit订单流'] = row
+    except Exception:
+        pass
     orderflow_venues = sum(1 for v in coverage.values() if v == 'ok')
-    can_direction = orderflow_venues >= 2 and liq_confirmed > 0
+    can_direction = orderflow_venues >= 2
     level = '可用' if can_direction else ('仅参考' if (coverage or liq_heuristic) else '不可用')
     reasons = []
     if orderflow_venues < 2: reasons.append(f'订单流仅 {orderflow_venues} 个交易所有效')
-    if liq_confirmed == 0: reasons.append('没有确认爆仓数据，只有推测值')
+    if liq_confirmed == 0: reasons.append('没有确认爆仓数据；爆仓只能提示风险，不能投方向票')
     out['数据质量'] = {'等级': level, '可用于方向判断': can_direction,
+                       '爆仓可用于方向判断': liq_confirmed > 0,
                        '有效订单流交易所数': orderflow_venues, '原因': reasons}
     return out
